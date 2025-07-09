@@ -7,5 +7,5 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     def toCPU(x): return x
 
     def load_op(x): return CPUBuffer.fromCPU(x)
-    def unary_op(self,op): return self
+    def unary_op(x,op): return x
     def binary_op(x,op,y): return x + y

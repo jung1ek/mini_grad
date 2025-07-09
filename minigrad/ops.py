@@ -16,9 +16,8 @@ class LazyOp(NamedTuple):
     src: Tuple[Any,...] # LazyBuffer
     arg: Any = None
 
-
+#TODO visualiztion of tree execution
 class GenericExecAST:
-
     @classmethod
     def exec_ast(cls, ast: LazyOp):
         # recursively execute the tree. rel_src = realized sources
@@ -26,7 +25,7 @@ class GenericExecAST:
         if ast.op in LoadOps:
             ret = ast.arg
         elif ast.op in UnaryOps:
-            ret = cls.unary_op(ast.op)
+            ret = cls.unary_op(rel_srcs[0],ast.op)
         elif ast.op in BinaryOps:
             ret = cls.binary_op(rel_srcs[0], ast.op, rel_srcs[1])
         return ret

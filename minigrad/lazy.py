@@ -8,8 +8,6 @@ from minigrad.llops.ops_cpu import CPUBuffer
 class Device:
     pass
 
-
-
 class LazyBuffer:
     def __init__(self,shape,device,op_type:OpType,op:LazyOp):
         self.op_type = op_type
