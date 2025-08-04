@@ -3,17 +3,18 @@ import numpy as np
 from minigrad.ops import GenericExecAST
 from minigrad.ops import BinaryOps,UnaryOps,MovementOps,ReduceOps,ProcessingOps
 import operator
-from helpers import shape_to_axis
+from minigrad.helpers import shape_to_axis
 
 class CPUBuffer(np.ndarray,GenericExecAST):
 
     fxn_for_op = {
         BinaryOps.MUL: operator.mul, BinaryOps.ADD: operator.add,
-        MovementOps.EXPAND: lambda x,shape: x.expand(shape), MovementOps.RESHAPE: lambda x, shape: x.reshape(shape),
+        MovementOps.EXPAND: lambda x,shape: CPUBuffer.expand(x,shape), MovementOps.RESHAPE: lambda x, shape: CPUBuffer.reshape(x,shape),
         ReduceOps.SUM: lambda x, new_shape: x.sum(shape_to_axis(x.shape,new_shape),keepdims=True), ReduceOps.MAX: None,
     }
     def expand(x,shape) : return np.broadcast_to(x,shape=shape).view(CPUBuffer)
     def reshape(x,shape) : return x.reshape(shape).view(CPUBuffer)
+    def permute(x,order) : return None
     def transpose(x,order) : return None
 
     @staticmethod
