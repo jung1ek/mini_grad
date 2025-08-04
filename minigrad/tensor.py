@@ -37,6 +37,11 @@ class Tensor:
     @property
     def device(self):
         return self.lazydata.device
+
+    @classmethod
+    def rand(cls,shape: tuple):
+        assert type(shape)==tuple,""
+        return cls(np.random.rand(shape))
     
     #TODO reshape and shape expand and permute
     @property
@@ -46,9 +51,15 @@ class Tensor:
         self.lazydata.realize()
         return self
     
-    def reshape(self,shape) : return self._reshape(shape=shape)
-    def expand(self,shape) : pass
-    
+    def reshape(self,shape) : return self._reshape.apply(self,shape=shape)
+    def expand(self,shape) : return self._expand.apply(self,shape=shape)
+
+    # TODO uses reshape
+    def flatten(self): return None
+
+    #TODO transpose uses permute
+    def transpose(self): return None
+
     # toposort and backpropagation
     def deepwalk(self):
         def _deepwalk(node,visited,nodes):
@@ -58,17 +69,6 @@ class Tensor:
                 nodes.append(node)
             return nodes
         return _deepwalk(self,set(),[])
-    
-        def _deepwalk(node, visited, nodes):
-            visited.add(node)
-            if node._ctx:
-                # Visit all parents first
-                for parent in node._ctx.parents:
-                    if parent not in visited:
-                        _deepwalk(parent, visited, nodes)
-                nodes.append(node)
-            return nodes
-        return _deepwalk(self, set(), [])
 
     def backward(self):
         # Implicit gradient creation (assumes scalar output).
@@ -95,6 +95,7 @@ class Tensor:
                     t.grad = g if t.grad is None else (t.grad + g)  # Gradient accumulation.
             del node._ctx
 
+    
     # broad-casted binary ops
     @classmethod
     def broadcasted(fxn, x, y):
@@ -107,21 +108,28 @@ class Tensor:
         # calculate output shape, eg: (2,3) vs (1,1) Result: (2,3)
         ret_shape = tuple(max(sx,sy) for sx, sy in zip(x.shape,y.shape))
         # expand (1,1) to match (2,3) with repeating elements.
-        return fxn(x.expand(ret_shape),y.expand(ret_shape))
+        return fxn.apply(x.expand(ret_shape),y.expand(ret_shape))
 
     def mul(self,x): return Tensor.broadcasted(self._mul,self,x)
     def add(self,x): return Tensor.broadcasted(self._add,self,x)
-    def __mul__(self,other): return self._mul(other)
-    def __add__(self,other): return self._add(other)
-    
 
+    # test only before broadcasting
+    def __mul__(self,other): return self._mul.apply(other)
+    def __add__(self,other): return self._add.apply(other)
+    
+    # TODO reduce op function, handle int, negative indexing (-1), and calculate shape
+    def _reduce(self,fxn, axis=None, keepdims=False):
+        pass
+
+    def sum(self,axis=None,keepdims=False): return self._reduce(Tensor._sum,axis=axis,keepdims=keepdims)
+    def max(self,axis=None,keepdims=False): return self._reduce(Tensor._max,axis=axis,keepdims=keepdims)
 
 # act as the context
 class Function:
     def __init__(self,device:str,*tensors:Tensor):
         self.device = device
-        self.parents = tensors
-        self.saved_tensors : list[Tensor]
+        self.parents: tuple[Tensor] = tensors
+        self.saved_tensors : list[LazyBuffer]
 
         self.need_input_grad = [t.requires_grad for t in self.parents]
         self.requires_grad = True if any(self.need_input_grad) else False
@@ -130,7 +138,7 @@ class Function:
         self.saved_tensors.extend(x)
 
     def forward(self,*x): raise NotImplementedError
-    def backward(cls,*x): raise NotImplementedError
+    def backward(self,*x): raise NotImplementedError
 
     @classmethod
     def apply(cls, *x:Tensor, **kwargs) -> Tensor:
@@ -147,7 +155,7 @@ class Function:
 
 # register all math "ops" from mlops
 def register(name:str,fxn:Function):
-    setattr(Tensor,"_"+name if hasattr(Tensor, name) else name,functools.partialmethod(fxn.apply))
+    setattr(Tensor,"_"+name if hasattr(Tensor, name) else name,fxn)
 for name,cls in inspect.getmembers(importlib.import_module("minigrad.mlops"),inspect.isclass):
     if name!="Function" and name!="LazyBuffer" and name[0]!="_" and not name.endswith("Ops"): 
         register(name.lower(),cls)
