@@ -51,6 +51,7 @@ class Tensor:
         self.lazydata.realize()
         return self
     
+    #TODO halding unsupported shape
     def reshape(self,shape) : return self._reshape.apply(self,shape=shape)
     def expand(self,shape) : return self._expand.apply(self,shape=shape)
 
@@ -114,8 +115,8 @@ class Tensor:
     def add(self,x: Tensor): return Tensor.broadcasted(self._add,self,x)
 
     # test only before broadcasting
-    def __mul__(self,other): return self._mul.apply(self,other)
-    def __add__(self,other): return self._add.apply(self,other)
+    def __mul__(self,other): return self.mul(other)
+    def __add__(self,other): return self.add(other)
     
     # TODO reduce op function, handle int, negative indexing (-1), and calculate shape
     def _reduce(self,fxn, axis=None, keepdims=False):
