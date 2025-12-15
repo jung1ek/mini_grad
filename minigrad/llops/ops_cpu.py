@@ -10,7 +10,7 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     fxn_for_op = {
         BinaryOps.MUL: operator.mul, BinaryOps.ADD: operator.add,
         MovementOps.EXPAND: lambda x,shape: CPUBuffer.expand(x,shape), MovementOps.RESHAPE: lambda x, shape: CPUBuffer.reshape(x,shape),
-        ReduceOps.SUM: lambda x, axis,keepdims: x.sum(axis=axis,keepdims=keepdims), ReduceOps.MAX: None,
+        ReduceOps.SUM: lambda x, axis,keepdims: x.sum(axis=axis,keepdims=keepdims).view(CPUBuffer), ReduceOps.MAX: None,
     }
     def expand(x,shape) : return np.broadcast_to(x,shape=shape).view(CPUBuffer)
     def reshape(x,shape) : return x.reshape(shape).view(CPUBuffer)

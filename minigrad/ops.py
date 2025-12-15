@@ -32,4 +32,6 @@ class GenericExecAST:
             ret = cls.binary_op(rel_srcs[0], ast.op, rel_srcs[1])
         elif ast.op in ReduceOps:
             ret = cls.reduce_op(rel_srcs[0],ast.op,*ast.arg)
+        elif ast.op in MovementOps:
+            ret = cls.movement_op(rel_srcs[0],ast.op,ast.arg)
         return ret

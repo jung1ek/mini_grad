@@ -28,13 +28,16 @@ class LazyBuffer:
     
     def _realize_reduceops(self):
         return CPUBuffer.exec_ast(self.op)
+    
+    def _realize_movementops(self):
+        return CPUBuffer.exec_ast(self.op)
 
     # Forcing Computation.
     def realize(self):
         if self.realized is not None:
             return self.realized
         _realize = {LoadOps: self._realize_loadops,BinaryOps: self._realize_binaryops,
-                    ReduceOps: self._realize_reduceops}
+                    ReduceOps: self._realize_reduceops, MovementOps: self._realize_movementops}
         self.realized = _realize[self.op_type]()
         del self.op
         return self.realized
@@ -50,7 +53,7 @@ class LazyBuffer:
     
     # creating lazy buffer through operations, z(new_buffer) = x(current_buffer)+(op) y(other_buffer)
     def movement_op(self,op:MovementOps,shape:tuple):
-        return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),shape))
+        return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),arg=shape))
     
     def binary_op(self,op:BinaryOps,other:LazyBuffer): # x(self) & y(other)
         return LazyBuffer(self.shape,self.device,BinaryOps,LazyOp(op,(self,other)))
