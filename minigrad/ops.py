@@ -6,8 +6,9 @@ from typing import NamedTuple,Tuple,Union,Any,Type
 BinaryOps = Enum("BinaryOps",["MUL","ADD"])
 UnaryOps = Enum("UnaryOps",["RELU","EXP"])
 LoadOps = Enum("LoadOps",["FROMCPU"])
-MovementOps = Enum("MovementOps",["EXPAND","RESHAPE"])
-ReduceOps = Enum("ReduceOps",["SUM"])
+MovementOps = Enum("MovementOps",["EXPAND","RESHAPE","PERMUTE"])
+ReduceOps = Enum("ReduceOps",["SUM","MAX"])
+ProcessingOps = Enum("ProcessingOps",["Conv1D","Conv2D"])
 
 Op = Union[LoadOps,UnaryOps,BinaryOps]
 OpType = Union[Type[BinaryOps],Type[UnaryOps],Type[LoadOps]]
@@ -19,8 +20,9 @@ class LazyOp(NamedTuple):
 #TODO visualiztion of tree execution
 class GenericExecAST:
     @classmethod
-    def exec_ast(cls, ast: LazyOp):
-        # recursively execute the tree. rel_src = realized sources
+    def exec_ast(cls: GeneratorExit, ast: LazyOp):
+        # recursively execute the tree from srcs to the final node.
+        # rel_srcs = realized sources
         rel_srcs = [cls.exec_ast(x) if isinstance(x,LazyOp) else cls.exec_ast(x.op) for x in ast.src]
         if ast.op in LoadOps:
             ret = ast.arg
@@ -28,4 +30,6 @@ class GenericExecAST:
             ret = cls.unary_op(rel_srcs[0],ast.op)
         elif ast.op in BinaryOps:
             ret = cls.binary_op(rel_srcs[0], ast.op, rel_srcs[1])
+        elif ast.op in ReduceOps:
+            ret = cls.reduce_op(rel_srcs[0],ast.op,*ast.arg)
         return ret

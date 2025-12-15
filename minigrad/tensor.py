@@ -41,7 +41,7 @@ class Tensor:
     @classmethod
     def rand(cls,shape: tuple):
         assert type(shape)==tuple,""
-        return cls(np.random.rand(shape))
+        return cls(np.random.rand(*shape))
     
     #TODO reshape and shape expand and permute
     @property
@@ -97,8 +97,8 @@ class Tensor:
 
     
     # broad-casted binary ops
-    @classmethod
-    def broadcasted(fxn, x, y):
+    @staticmethod
+    def broadcasted(fxn : Function, x: Tensor, y: Tensor) -> Tensor:
         # prototype tensor
         tt = [arg for arg in [x,y] if isinstance(arg,Tensor)][0] 
         # convert number to Tensor
@@ -110,16 +110,16 @@ class Tensor:
         # expand (1,1) to match (2,3) with repeating elements.
         return fxn.apply(x.expand(ret_shape),y.expand(ret_shape))
 
-    def mul(self,x): return Tensor.broadcasted(self._mul,self,x)
-    def add(self,x): return Tensor.broadcasted(self._add,self,x)
+    def mul(self,x: Tensor): return Tensor.broadcasted(self._mul,self,x)
+    def add(self,x: Tensor): return Tensor.broadcasted(self._add,self,x)
 
     # test only before broadcasting
-    def __mul__(self,other): return self._mul.apply(other)
-    def __add__(self,other): return self._add.apply(other)
+    def __mul__(self,other): return self._mul.apply(self,other)
+    def __add__(self,other): return self._add.apply(self,other)
     
     # TODO reduce op function, handle int, negative indexing (-1), and calculate shape
     def _reduce(self,fxn, axis=None, keepdims=False):
-        pass
+        return fxn.apply(self,axis=axis,keepdims=keepdims)
 
     def sum(self,axis=None,keepdims=False): return self._reduce(Tensor._sum,axis=axis,keepdims=keepdims)
     def max(self,axis=None,keepdims=False): return self._reduce(Tensor._max,axis=axis,keepdims=keepdims)

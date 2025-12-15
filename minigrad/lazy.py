@@ -4,6 +4,7 @@ from enum import Enum
 import numpy as np
 from minigrad.ops import LazyOp, OpType,LoadOps,ReduceOps,MovementOps,BinaryOps,UnaryOps
 from minigrad.llops.ops_cpu import CPUBuffer
+from minigrad.helpers import reduce_shape
 
 class Device:
     pass
@@ -24,12 +25,16 @@ class LazyBuffer:
 
     def _realize_loadops(self):
         return CPUBuffer.exec_ast(self.op)
+    
+    def _realize_reduceops(self):
+        return CPUBuffer.exec_ast(self.op)
 
     # Forcing Computation.
     def realize(self):
         if self.realized is not None:
             return self.realized
-        _realize = {LoadOps: self._realize_loadops,BinaryOps: self._realize_binaryops}
+        _realize = {LoadOps: self._realize_loadops,BinaryOps: self._realize_binaryops,
+                    ReduceOps: self._realize_reduceops}
         self.realized = _realize[self.op_type]()
         del self.op
         return self.realized
@@ -52,4 +57,7 @@ class LazyBuffer:
     
     def unary_op(self,op:UnaryOps):
         return LazyBuffer(self.shape,self.device,UnaryOps,LazyOp(op,(self,)))
+    
+    def reduce_op(self, op: ReduceOps,axis,keepdims):
+        return LazyBuffer(reduce_shape(self.shape,axis=axis,keepdims=keepdims),self.device,ReduceOps,LazyOp(op,(self,),arg=(axis,keepdims)))
 
