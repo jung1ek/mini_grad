@@ -44,3 +44,11 @@ class Sum(Function):
 
     def backward(self, output_grad: LazyBuffer):
         return output_grad.movement_op(MovementOps.EXPAND,self.input_shape)
+    
+class Permute(Function):
+
+    def forward(self, x: LazyBuffer, order: tuple):
+        return x.movement_op(MovementOps.PERMUTE, order)
+    
+    def backward(self,output_grad: LazyBuffer):
+        pass

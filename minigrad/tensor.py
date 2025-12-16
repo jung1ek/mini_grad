@@ -52,14 +52,16 @@ class Tensor:
         return self
     
     #TODO halding unsupported shape
-    def reshape(self,shape) : return self._reshape.apply(self,shape=shape)
-    def expand(self,shape) : return self._expand.apply(self,shape=shape)
+    def reshape(self,*shape) : return self._reshape.apply(self,shape=shape)
+    def expand(self,*shape) : return self._expand.apply(self,shape=shape)
 
     # TODO uses reshape
     def flatten(self): return None
 
+    def permute(self,*order): return self._permute.apply(self,order=order)
+
     #TODO transpose uses permute
-    def transpose(self): return None
+    def transpose(self, *order): return self.permute(*order)
 
     # toposort and backpropagation
     def deepwalk(self):

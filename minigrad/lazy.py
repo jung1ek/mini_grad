@@ -52,8 +52,13 @@ class LazyBuffer:
         return self.realize().toCPU()
     
     # creating lazy buffer through operations, z(new_buffer) = x(current_buffer)+(op) y(other_buffer)
-    def movement_op(self,op:MovementOps,shape:tuple):
-        return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),arg=shape))
+    def movement_op(self,op:MovementOps,shape_order:tuple):
+        if op is MovementOps.PERMUTE:
+            # parameter shape is order
+            shape = tuple([self.shape[dim_idx] for dim_idx in shape_order])
+        else:
+            shape = shape_order
+        return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),arg=shape_order))
     
     def binary_op(self,op:BinaryOps,other:LazyBuffer): # x(self) & y(other)
         return LazyBuffer(self.shape,self.device,BinaryOps,LazyOp(op,(self,other)))

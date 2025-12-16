@@ -12,6 +12,8 @@ ProcessingOps = Enum("ProcessingOps",["Conv1D","Conv2D"])
 
 Op = Union[LoadOps,UnaryOps,BinaryOps]
 OpType = Union[Type[BinaryOps],Type[UnaryOps],Type[LoadOps]]
+
+# stores lazy sources (parents), operation type, other arguments for output lazy buffer
 class LazyOp(NamedTuple):
     op: Op
     src: Tuple[Any,...] # LazyBuffer
