@@ -10,7 +10,7 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     fxn_for_op = {
         BinaryOps.MUL: operator.mul, BinaryOps.ADD: operator.add,
         MovementOps.EXPAND: lambda x,shape: CPUBuffer.expand(x,shape), MovementOps.RESHAPE: lambda x, shape: CPUBuffer.reshape(x,shape),
-        MovementOps.PERMUTE: lambda x, order: CPUBuffer.transpose(x,order),
+        MovementOps.PERMUTE: lambda x, order: CPUBuffer.permute(x,order),
         ReduceOps.SUM: lambda x, axis,keepdims: x.sum(axis=axis,keepdims=keepdims).view(CPUBuffer), ReduceOps.MAX: None,
     }
 
@@ -25,7 +25,7 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     def expand(x,shape) : return np.broadcast_to(x,shape=shape).view(CPUBuffer)
     def reshape(x,shape) : return np.reshape(x,shape).view(CPUBuffer)
     def strided(x,arg): return np.lib.stride_tricks.as_strided(x.ravel().reshape(x.shape),shape=[y[0] for y in arg],strides=[y[1]*x.dtype.itemsize for y in arg]).view(CPUBuffer)
-    def transpose(x,order) : return np.transpose(x,order).view(CPUBuffer)
+    def permute(x,order) : return np.transpose(x,order).view(CPUBuffer)
 
     @staticmethod
     def fromCPU(x: np.ndarray) : return x.view(CPUBuffer)
