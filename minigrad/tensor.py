@@ -58,10 +58,22 @@ class Tensor:
     # TODO uses reshape
     def flatten(self): return None
 
-    def permute(self,*order): return self._permute.apply(self,order=order)
+    #TODO function to resovle dim, make positive axes
+    def _resolve_dim(self,dim:int):
+        ndim = len(self.shape)
+        # TODO index out of range
+        return dim+ndim if dim < 0 else dim
+    
+    def permute(self,order):
+        order_arg = tuple(self._resolve_dim(x) for x in order)
+        assert sorted(order_arg)==list(range(len(self.shape))),"Invalide Permutation"
+        return self._permute.apply(self,order=order_arg)
 
     #TODO transpose uses permute
-    def transpose(self, *order): return self.permute(*order)
+    def transpose(self, dim0=1,dim1=0):
+        order = list(range(len(self.shape)))
+        order[dim0],order[dim1] = order[dim1],order[dim0]
+        return self.permute(order)
 
     # toposort and backpropagation
     def deepwalk(self):
@@ -107,18 +119,18 @@ class Tensor:
         # convert number to Tensor
         x,y = [Tensor([t],device=tt.device,requires_grad=False) if not isinstance(t, Tensor) else t for t in [x,y]]
         # reshape for boradcasting, x=(2,3), then y=(1,1)
-        x,y = [t.reshape([1]*(max(len(x.shape), len(y.shape))-len(t.shape)) + list(t.shape)) for t in [x,y]]
+        x,y = [t.reshape(*([1]*(max(len(x.shape), len(y.shape))-len(t.shape)) + list(t.shape))) for t in [x,y]]
         # calculate output shape, eg: (2,3) vs (1,1) Result: (2,3)
         ret_shape = tuple(max(sx,sy) for sx, sy in zip(x.shape,y.shape))
         # expand (1,1) to match (2,3) with repeating elements.
-        return fxn.apply(x.expand(ret_shape),y.expand(ret_shape))
+        return fxn.apply(x.expand(*ret_shape),y.expand(*ret_shape))
 
     def mul(self,x: Tensor): return Tensor.broadcasted(self._mul,self,x)
     def add(self,x: Tensor): return Tensor.broadcasted(self._add,self,x)
 
     # test only before broadcasting
-    def __mul__(self,other): return self.mul(other)
-    def __add__(self,other): return self.add(other)
+    def __mul__(self,other: Tensor): return self.mul(other)
+    def __add__(self,other: Tensor): return self.add(other)
     
     # TODO reduce op function, handle int, negative indexing (-1), and calculate shape
     def _reduce(self,fxn, axis=None, keepdims=False):
@@ -126,6 +138,24 @@ class Tensor:
 
     def sum(self,axis=None,keepdims=False): return self._reduce(Tensor._sum,axis=axis,keepdims=keepdims)
     def max(self,axis=None,keepdims=False): return self._reduce(Tensor._max,axis=axis,keepdims=keepdims)
+
+    def matmul(self: Tensor,other: Tensor):
+        # broad cast, multiply and sum.
+        x,y,dx,dy = self,other,len(self.shape),len(other.shape)
+        assert (dx>0 and dy>0),"Must be 1d"
+        assert x.shape[-1] == y.shape[axis_y:=-min(len(y.shape),2)],"Cannot matmul shapes."
+        """equivalen to 
+        if w.ndim == 1:
+            axis_w = -1
+        else:
+            axis_w = -2"""
+        x = x.reshape(*x.shape[0:-1],*[1]*min(dx-1,dy-1,1),x.shape[-1])
+        y = y.reshape(*y.shape[0:-2],*[1]*min(dx-1,dy-1,1),*y.shape[axis_y:]).transpose(-1,axis_y)
+        return (x*y).sum(axis=-1)
+    
+    def conv2d(self,w,bias=False):
+        # im2col, sliding window.
+        pass
 
 # act as the context
 class Function:
