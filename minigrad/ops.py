@@ -6,9 +6,9 @@ from typing import NamedTuple,Tuple,Union,Any,Type
 BinaryOps = Enum("BinaryOps",["MUL","ADD"])
 UnaryOps = Enum("UnaryOps",["RELU","EXP"])
 LoadOps = Enum("LoadOps",["FROMCPU"])
-MovementOps = Enum("MovementOps",["EXPAND","RESHAPE","PERMUTE"])
+MovementOps = Enum("MovementOps",["EXPAND","RESHAPE","PERMUTE","STRIDED"])
 ReduceOps = Enum("ReduceOps",["SUM","MAX"])
-ProcessingOps = Enum("ProcessingOps",["Conv1D","Conv2D"])
+ProcessingOps = Enum("ProcessingOps",["CONV1D","CONV"])
 
 Op = Union[LoadOps,UnaryOps,BinaryOps]
 OpType = Union[Type[BinaryOps],Type[UnaryOps],Type[LoadOps]]
@@ -27,7 +27,7 @@ class GenericExecAST:
         # rel_srcs = realized sources
         rel_srcs = [cls.exec_ast(x) if isinstance(x,LazyOp) else cls.exec_ast(x.op) for x in ast.src]
         if ast.op in LoadOps:
-            ret = ast.arg
+            ret = cls.fromCPU(ast.arg)
         elif ast.op in UnaryOps:
             ret = cls.unary_op(rel_srcs[0],ast.op)
         elif ast.op in BinaryOps:
@@ -36,4 +36,6 @@ class GenericExecAST:
             ret = cls.reduce_op(rel_srcs[0],ast.op,*ast.arg)
         elif ast.op in MovementOps:
             ret = cls.movement_op(rel_srcs[0],ast.op,ast.arg)
+        elif ast.op in ProcessingOps:
+            ret = cls.processing_op(rel_srcs[0],ast.op,rel_srcs[1],ast.arg)
         return ret

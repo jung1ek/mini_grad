@@ -2,13 +2,18 @@ from __future__ import annotations
 from typing import NamedTuple, Union, Tuple,Any
 from enum import Enum
 import numpy as np
-from minigrad.ops import LazyOp, OpType,LoadOps,ReduceOps,MovementOps,BinaryOps,UnaryOps
+from minigrad.ops import LazyOp, OpType,LoadOps,ReduceOps,MovementOps,BinaryOps,UnaryOps,ProcessingOps
 from minigrad.llops.ops_cpu import CPUBuffer
 from minigrad.helpers import reduce_shape
+from minigrad.helpers import ConvArgs, get_conv_args
+import sys
+
+sys.setrecursionlimit(1000)
 
 class Device:
     pass
 
+# TODO two ops in a row is one op. merge them if unresolved, movement ops
 class LazyBuffer:
     def __init__(self,shape,device,op_type:OpType,op:LazyOp):
         self.op_type = op_type
@@ -31,13 +36,17 @@ class LazyBuffer:
     
     def _realize_movementops(self):
         return CPUBuffer.exec_ast(self.op)
+    
+    def _realize_processingops(self):
+        return CPUBuffer.exec_ast(self.op)
 
     # Forcing Computation.
     def realize(self):
         if self.realized is not None:
             return self.realized
         _realize = {LoadOps: self._realize_loadops,BinaryOps: self._realize_binaryops,
-                    ReduceOps: self._realize_reduceops, MovementOps: self._realize_movementops}
+                    ReduceOps: self._realize_reduceops, MovementOps: self._realize_movementops,
+                    ProcessingOps: self._realize_processingops}
         self.realized = _realize[self.op_type]()
         del self.op
         return self.realized
@@ -68,4 +77,8 @@ class LazyBuffer:
     
     def reduce_op(self, op: ReduceOps,axis,keepdims):
         return LazyBuffer(reduce_shape(self.shape,axis=axis,keepdims=keepdims),self.device,ReduceOps,LazyOp(op,(self,),arg=(axis,keepdims)))
+    
+    def processing_op(x,op:ProcessingOps,w:LazyBuffer,arg: ConvArgs):
+        # TODO, implement conv2d using expand,reshape,mul,sum
+        return LazyBuffer(arg.out_shape,x.device,ProcessingOps,LazyOp(op,(x,w),arg))
 

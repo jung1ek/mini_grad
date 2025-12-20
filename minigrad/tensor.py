@@ -4,6 +4,8 @@ from minigrad.lazy import LazyBuffer
 from typing import Optional, Literal, Sequence
 import functools, inspect, importlib
 
+# TODO view , squeeze, unsqueeze, getitem, setitem, activation fn,
+# TODO fix shape, 
 class Tensor:
     def __init__(self,data,device=None,requires_grad=None):
         if isinstance(data,list):
@@ -47,6 +49,9 @@ class Tensor:
     @property
     def shape(self): return self.lazydata.shape
 
+    @property
+    def T(self): return self.transpose()
+    
     def realize(self):
         self.lazydata.realize()
         return self
@@ -55,8 +60,22 @@ class Tensor:
     def reshape(self,*shape) : return self._reshape.apply(self,shape=shape)
     def expand(self,*shape) : return self._expand.apply(self,shape=shape)
 
+    def ndim(self) -> int: return len(self.shape)
     # TODO uses reshape
     def flatten(self): return None
+
+    # uses reshape
+    def squeeze(self):
+        pass
+    
+    # uses reshape
+    def unsqueeze(self):
+        pass
+    
+    # TODO contiguous, 
+    # view is alias for reshape
+    def view(self,shape):
+        pass
 
     #TODO function to resovle dim, make positive axes
     def _resolve_dim(self,dim:int):
@@ -140,7 +159,7 @@ class Tensor:
     def max(self,axis=None,keepdims=False): return self._reduce(Tensor._max,axis=axis,keepdims=keepdims)
 
     def matmul(self: Tensor,other: Tensor):
-        # broad cast, multiply and sum.
+        # broad cast, multiply and sum over axis.
         x,y,dx,dy = self,other,len(self.shape),len(other.shape)
         assert (dx>0 and dy>0),"Must be 1d"
         assert x.shape[-1] == y.shape[axis_y:=-min(len(y.shape),2)],"Cannot matmul shapes."
@@ -152,10 +171,12 @@ class Tensor:
         x = x.reshape(*x.shape[0:-1],*[1]*min(dx-1,dy-1,1),x.shape[-1])
         y = y.reshape(*y.shape[0:-2],*[1]*min(dx-1,dy-1,1),*y.shape[axis_y:]).transpose(-1,axis_y)
         return (x*y).sum(axis=-1)
-    
-    def conv2d(self,w,bias=False):
+    # TODO pool uses reshape and max,mean
+    # TODO pad for backward
+    def conv2d(self,w,bias=None,**kwargs):
         # im2col, sliding window.
-        pass
+        # TODO add bias.
+        return self._conv2d.apply(self,w,**kwargs)
 
 # act as the context
 class Function:

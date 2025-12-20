@@ -3,7 +3,7 @@ import numpy as np
 from minigrad.ops import GenericExecAST
 from minigrad.ops import BinaryOps,UnaryOps,MovementOps,ReduceOps,ProcessingOps
 import operator
-from minigrad.helpers import shape_to_axis
+from minigrad.helpers import shape_to_axis,ConvArgs
 
 class CPUBuffer(np.ndarray,GenericExecAST):
     # all the x are realized data.
@@ -12,6 +12,7 @@ class CPUBuffer(np.ndarray,GenericExecAST):
         MovementOps.EXPAND: lambda x,shape: CPUBuffer.expand(x,shape), MovementOps.RESHAPE: lambda x, shape: CPUBuffer.reshape(x,shape),
         MovementOps.PERMUTE: lambda x, order: CPUBuffer.permute(x,order),
         ReduceOps.SUM: lambda x, axis,keepdims: x.sum(axis=axis,keepdims=keepdims).view(CPUBuffer), ReduceOps.MAX: None,
+        MovementOps.STRIDED: lambda x,args: CPUBuffer.strided(x,args)
     }
 
     def relu(x): return np.maximum(0,x)
@@ -37,4 +38,10 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     def movement_op(x,op,shape_order): return CPUBuffer.fxn_for_op[op](x,shape_order)
     def reduce_op(x,op,axis,keepdims): return CPUBuffer.fxn_for_op[op](x,axis,keepdims)
     
-    def processing_op(x,op,c): return None
+    def processing_op(x,op,w,C: ConvArgs):
+        # TODO can use sliding window view? much safer
+        tx = x.movement_op(MovementOps.STRIDED,((C.bs, C.groups*C.cin*x.shape[2]*x.shape[3]), (C.groups, C.cin*x.shape[2]*x.shape[3]),
+            (C.oy, C.sy*x.shape[3]), (C.ox, C.sx), (C.cin, x.shape[2]*x.shape[3]), (C.H, C.dy*x.shape[3]), (C.W, C.dx)))
+        tw = w.reshape((C.groups, C.rcout, C.cin, C.H,C.W)) # separate groups and cout per group
+        out = np.einsum("nGhwCHW, GkCHW -> nGkhw", tx.ravel().reshape(tx.shape), tw.ravel().reshape(tw.shape))
+        return out.reshape((C.bs,C.groups*C.rcout,C.oy,C.ox)).view(CPUBuffer)
