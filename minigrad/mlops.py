@@ -1,9 +1,10 @@
 from __future__ import annotations
 from minigrad.tensor import Function
-from minigrad.lazy import MovementOps, LazyBuffer,BinaryOps,ReduceOps
-from minigrad.helpers import reduce_shape, shape_to_axis
+from minigrad.lazy import MovementOps, LazyBuffer,BinaryOps,ReduceOps,ProcessingOps
+from minigrad.helpers import reduce_shape, shape_to_axis, ConvArgs, get_conv_args
 # TODO making forward and backward for every math function
-
+# TODO Relu, Log,Exp,Reciprocal,Sum, Max,Sub,Pow
+# TODO slice and flip with 3 arguments stride
 class Mul(Function):
     def forward(self, x: LazyBuffer, y: LazyBuffer)-> LazyBuffer:
         return x.binary_op(BinaryOps.MUL,y)
@@ -52,3 +53,9 @@ class Permute(Function):
     
     def backward(self,output_grad: LazyBuffer):
         pass
+
+class Conv2D(Function):
+
+    def forward(self,x: LazyBuffer,w: LazyBuffer,stride=1, groups=1, dilation=1, padding=0):
+        self.conv_args = get_conv_args(x.shape, w.shape, stride=stride, groups=groups, dilation=dilation, padding=padding)
+        return x.processing_op(ProcessingOps.CONV,w,self.conv_args)
