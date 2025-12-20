@@ -1,3 +1,5 @@
+from collections import namedtuple
+
 # axis based on the old shape and new shape
 def shape_to_axis(old_shape,new_shape):
     # Case 1: keepdims=True
@@ -38,3 +40,32 @@ def reduce_shape(shape, axis,keepdims=False):
             shape[i] for i in range(ndim) if i not in axes
         ]
     return tuple(new_shape)
+
+ConvArgs = namedtuple("ConvArgs",['H', 'W', 'groups', 'rcout', 'cin', 'oy', 'ox', 'iy', 'ix', 'sy', 'sx', 'bs', 'cout', 'py', 'py_', 'px', 'px_', 'dy', 'dx', 'out_shape'])
+def get_conv_args(x_shape, w_shape, stride=1, groups=1, padding=0, dilation=1, out_shape=None):
+    cout,cin,H,W = w_shape
+    sy,sx = (stride, stride) if isinstance(stride, int) else stride
+    if not isinstance(padding, int) and len(padding) == 4:
+        px,px_,py,py_ = padding
+    else:
+        py,px = (padding, padding) if isinstance(padding, int) else padding
+        py_, px_ = py, px
+    dy,dx = (dilation, dilation) if isinstance(dilation, int) else dilation
+    bs,cin_,iy,ix = x_shape
+
+    # this can change px_ and py_ to make the out_shape right
+    # TODO: copy padding names from http://nvdla.org/hw/v1/ias/unit_description.html
+    if out_shape is not None:
+        py_ = (out_shape[2] - 1) * sy + 1 + dy * (H-1) - iy - py
+        px_ = (out_shape[3] - 1) * sx + 1 + dx * (W-1) - ix - px
+
+    # TODO: should be easy to support asymmetric padding by changing output size
+    # output spatial size, (h,w)
+    oy = (iy + py + py_ - dy * (H-1) - 1)//sy + 1
+    ox = (ix + px + px_ - dx * (W-1) - 1)//sx + 1
+    if cin*groups != cin_:
+        raise Exception(f"Input Tensor shape {x_shape} does not match the shape of the weights {w_shape}. ({cin*groups} vs. {cin_})")
+    assert cout % groups == 0 and (out_shape is None or out_shape == (bs, cout, oy, ox))
+    return ConvArgs(H, W, groups, cout//groups, cin, oy, ox, iy, ix, sy, sx, bs, cout, py, py_, px, px_, dy, dx, (bs, cout, oy, ox))
+
+
