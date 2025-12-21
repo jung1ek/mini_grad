@@ -41,7 +41,7 @@ class LazyBuffer:
         return CPUBuffer.exec_ast(self.op)
 
     # Forcing Computation.
-    def realize(self):
+    def realize(self) -> CPUBuffer:
         if self.realized is not None:
             return self.realized
         _realize = {LoadOps: self._realize_loadops,BinaryOps: self._realize_binaryops,
@@ -61,13 +61,13 @@ class LazyBuffer:
         return self.realize().toCPU()
     
     # creating lazy buffer through operations, z(new_buffer) = x(current_buffer)+(op) y(other_buffer)
-    def movement_op(self,op:MovementOps,shape_order:tuple):
+    def movement_op(self,op:MovementOps,arg:tuple):
         if op is MovementOps.PERMUTE:
-            # parameter shape is order
-            shape = tuple([self.shape[dim_idx] for dim_idx in shape_order])
+            # parameter shape is order for permute op.
+            shape = tuple([self.shape[dim_idx] for dim_idx in arg])
         else:
-            shape = shape_order
-        return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),arg=shape_order))
+            shape = arg
+        return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),arg=arg))
     
     def binary_op(self,op:BinaryOps,other:LazyBuffer): # x(self) & y(other)
         return LazyBuffer(self.shape,self.device,BinaryOps,LazyOp(op,(self,other)))
@@ -81,4 +81,9 @@ class LazyBuffer:
     def processing_op(x,op:ProcessingOps,w:LazyBuffer,arg: ConvArgs):
         # TODO, implement conv2d using expand,reshape,mul,sum
         return LazyBuffer(arg.out_shape,x.device,ProcessingOps,LazyOp(op,(x,w),arg))
+    
+    def slice(x, arg):
+        # Pad first then shrink, pad to make valid indices; only if needed
+        padding = [(max(0,-p[0]),max(0,p[1]-x.shape[i])) for i,p in enumerate(arg)]
+        return x.movement_op(MovementOps.PAD,padding).movement_op(MovementOps.SHRINK,tuple((p[0]+padding[i][0],p[1]+padding[i][0]) for i,p in enumerate(arg)))
 

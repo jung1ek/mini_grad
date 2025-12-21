@@ -39,6 +39,9 @@ class Tensor:
     @property
     def device(self):
         return self.lazydata.device
+    
+    def detach(self): pass
+    def numpy(self): return np.array(self.lazydata.toCPU())
 
     @classmethod
     def rand(cls,shape: tuple):
@@ -128,7 +131,28 @@ class Tensor:
                     assert g.shape==t.shape, f"grad shape must match tensor shape in {self._ctx!r}, {g.shape!r} != {t.shape!r}"
                     t.grad = g if t.grad is None else (t.grad + g)  # Gradient accumulation.
             del node._ctx
+    
+    def __getitem__(self,value):
+        arg, new_shape = [],[]
+        # iterate through each slice index.
+        for i, rs in enumerate(value if isinstance(value, (list,tuple)) else [value]) if value is not None else []:
+            # if the indexing vlue is int not slice; (1) int , (1:2) slice
+            s = slice(rs,rs+1,None) if isinstance(rs, int) else rs
+            # slice into absolute bounds
+            arg.append((s.start if s.start is not None else 0,(s.stop if s.stop>=0 else self.shape[i]+s.stop) if s.stop is not None else self.shape[i]))
+            # disallow stride
+            assert s.step is None or s.step ==1
 
+            if not isinstance(rs,int):
+                # stop - start, new shape if it is int then remove that dim
+                new_shape.append(arg[-1][1]-arg[-1][0])
+        # add un touched dim
+        new_shape+= [self.shape[i] for i in range(len(arg),len(self.shape))]
+
+        # slice all dimensions explictely (0, dim)
+        arg = arg + [(0, self.shape[i]) for i in range(len(arg),len(self.shape))]
+        # slice based on slice indices and reshape; need reshape (slice always preserves rank.) to drop int dim
+        return self.slice.apply(self,arg=arg).reshape(*new_shape)
     
     # broad-casted binary ops
     @staticmethod

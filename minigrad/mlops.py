@@ -17,6 +17,16 @@ class Add(Function):
     def backward(self,output_grad: LazyBuffer):
         return 0
 
+class Slice(Function):
+    def forward(self, x : LazyBuffer,arg=None):
+
+        # the range in the padded tensor that corresponds to the original tensor.
+        self.narg = tuple((0-p[0],x.shape[i]-p[0]) for i,p in enumerate(arg))
+        return x.slice(arg=tuple(arg))
+    
+    def backward(self, output_grad):
+        return None
+    
 # Movement ops
 class Reshape(Function):
     # x is LazyBuffer.

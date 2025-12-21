@@ -6,7 +6,7 @@ from typing import NamedTuple,Tuple,Union,Any,Type
 BinaryOps = Enum("BinaryOps",["MUL","ADD"])
 UnaryOps = Enum("UnaryOps",["RELU","EXP"])
 LoadOps = Enum("LoadOps",["FROMCPU"])
-MovementOps = Enum("MovementOps",["EXPAND","RESHAPE","PERMUTE","STRIDED"])
+MovementOps = Enum("MovementOps",["EXPAND","RESHAPE","PERMUTE","STRIDED","PAD","SHRINK"])
 ReduceOps = Enum("ReduceOps",["SUM","MAX"])
 ProcessingOps = Enum("ProcessingOps",["CONV1D","CONV"])
 
