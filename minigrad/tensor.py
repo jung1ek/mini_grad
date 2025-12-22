@@ -72,17 +72,22 @@ class Tensor:
         return self.reshape(*flatten_shape)
 
     # uses reshape
-    def squeeze(self):
-        pass
+    def squeeze(self,dim=None):
+        if dim is None:
+            return self.reshape(*tuple(dim for dim in self.shape if dim!=1))
+        dim = self._resolve_dim(dim)
+        return self if not self.ndim or self.shape[dim] != 1 else self.reshape(*tuple(self.shape[:dim] + self.shape[dim+1:]))
     
     # uses reshape
-    def unsqueeze(self):
-        pass
+    def unsqueeze(self,dim):
+        dim = self._resolve_dim(dim)
+        unsq_shape = tuple(self.shape[:dim]+(1,)+self.shape[dim:])
+        return self.reshape(*unsq_shape)
     
     # TODO contiguous, 
     # view is alias for reshape
     def view(self,*shape):
-        self.reshape(*shape)
+        return self.reshape(*shape)
 
     #function to resovle dim, make positive axes
     def _resolve_dim(self,dim:int):
