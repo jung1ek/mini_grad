@@ -3,6 +3,7 @@ import numpy as np
 from minigrad.lazy import LazyBuffer
 from typing import Optional, Literal, Sequence
 import functools, inspect, importlib
+import math
 
 # TODO view , squeeze, unsqueeze, getitem, setitem, activation fn,
 # TODO fix shape, 
@@ -48,7 +49,6 @@ class Tensor:
         assert type(shape)==tuple,""
         return cls(np.random.rand(*shape))
     
-    #TODO reshape and shape expand and permute
     @property
     def shape(self): return self.lazydata.shape
 
@@ -64,8 +64,12 @@ class Tensor:
     def expand(self,*shape) : return self._expand.apply(self,shape=shape)
 
     def ndim(self) -> int: return len(self.shape)
-    # TODO uses reshape
-    def flatten(self): return None
+    
+    def flatten(self,start_dim=0,end_dim=-1):
+        # resolve dim, index out of range
+        start_dim, end_dim = self._resolve_dim(start_dim), self._resolve_dim(end_dim)
+        flatten_shape = tuple(self.shape[:start_dim]+(math.prod(self.shape[start_dim:end_dim+1]),)+self.shape[end_dim+1:])
+        return self.reshape(*flatten_shape)
 
     # uses reshape
     def squeeze(self):
@@ -77,13 +81,15 @@ class Tensor:
     
     # TODO contiguous, 
     # view is alias for reshape
-    def view(self,shape):
-        pass
+    def view(self,*shape):
+        self.reshape(*shape)
 
-    #TODO function to resovle dim, make positive axes
+    #function to resovle dim, make positive axes
     def _resolve_dim(self,dim:int):
         ndim = len(self.shape)
-        # TODO index out of range
+        # index out of range
+        if not -max(1,ndim)<=dim<=max(1,ndim)-1:
+            raise IndexError(f"{dim=} out of range {[-max(1, ndim), max(1, ndim) - 1]}")
         return dim+ndim if dim < 0 else dim
     
     def permute(self,order):
