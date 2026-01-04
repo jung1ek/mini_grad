@@ -5,7 +5,7 @@ from typing import Optional, Literal, Sequence
 import functools, inspect, importlib
 import math
 
-# TODO view , squeeze, unsqueeze, getitem, setitem, activation fn,
+# TODO setitem, activation fn,
 # TODO fix shape, 
 class Tensor:
     def __init__(self,data,device=None,requires_grad=None):
@@ -49,6 +49,22 @@ class Tensor:
         assert type(shape)==tuple,""
         return cls(np.random.rand(*shape))
     
+    # use numpy for now
+    @classmethod
+    def zeros_like(): pass
+
+    @classmethod
+    def zeros(): pass
+
+    @classmethod
+    def ones(): pass
+
+    @classmethod
+    def randn(): pass
+
+    @classmethod
+    def arange(): pass
+    
     @property
     def shape(self): return self.lazydata.shape
 
@@ -58,6 +74,13 @@ class Tensor:
     def realize(self):
         self.lazydata.realize()
         return self
+    
+    def assign(self,x):
+        if not isinstance(x,Tensor):
+            x = Tensor(x)
+        assert self.shape == x.shape
+        self.lazydata = x.lazydata
+        return x
     
     #TODO halding unsupported shape
     def reshape(self,*shape) : return self._reshape.apply(self,shape=shape)
@@ -120,7 +143,7 @@ class Tensor:
 
     def backward(self):
         # Implicit gradient creation (assumes scalar output).
-        assert self.shape == (1,), "Backward can only be called on scalar tensors."
+        assert self.shape == (1,) or self.shape == (), "Backward can only be called on scalar tensors."
         self.grad = Tensor([1],requires_grad=False,device=self.device)  # Initial gradient (dy/dy = 1)
 
         for node in reversed(self.deepwalk()):  # Process nodes in reverse topological order.
@@ -141,7 +164,8 @@ class Tensor:
                 if g is not None and t.requires_grad:
                     assert g.shape==t.shape, f"grad shape must match tensor shape in {self._ctx!r}, {g.shape!r} != {t.shape!r}"
                     t.grad = g if t.grad is None else (t.grad + g)  # Gradient accumulation.
-            del node._ctx
+            # for graph visual
+            # del node._ctx
     
     def __getitem__(self,value):
         arg, new_shape = [],[]
@@ -179,46 +203,87 @@ class Tensor:
         # expand (1,1) to match (2,3) with repeating elements.
         return fxn.apply(x.expand(*ret_shape),y.expand(*ret_shape))
 
-    def mul(self,x: Tensor): return Tensor.broadcasted(self._mul,self,x)
-    def add(self,x: Tensor): return Tensor.broadcasted(self._add,self,x)
+    def mul(self,x): return Tensor.broadcasted(Tensor._mul,self,x)
+    def add(self,x): return Tensor.broadcasted(Tensor._add,self,x)
+    def sub(self,x): return Tensor.broadcasted(Tensor._sub,self,x)
+    def pow(self,x): return Tensor.broadcasted(Tensor._pow,self,x)
+    # for  number y, it get 1/number. then broadcast the value;
+    def div(self,y): return self * (y.reciprocal.apply(y) if isinstance(y,Tensor) else (1/y))
 
-    # test only before broadcasting
-    def __mul__(self,other: Tensor): return self.mul(other)
-    def __add__(self,other: Tensor): return self.add(other)
+    # can be sub function.
+    def __neg__(self): return 0.0-self
     
     # TODO reduce op function, handle int, negative indexing (-1), and calculate shape
-    def _reduce(self,fxn, axis=None, keepdims=False):
-        return fxn.apply(self,axis=axis,keepdims=keepdims)
+    def _reduce(self,fxn, axis=None, keepdim=False):
+        return fxn.apply(self,axis=axis,keepdim=keepdim)
 
-    def sum(self,axis=None,keepdims=False): return self._reduce(Tensor._sum,axis=axis,keepdims=keepdims)
-    def max(self,axis=None,keepdims=False): return self._reduce(Tensor._max,axis=axis,keepdims=keepdims)
+    def sum(self,axis=None,keepdim=False): return self._reduce(Tensor._sum,axis=axis,keepdim=keepdim)
+    def max(self,axis=None,keepdim=False): return self._reduce(Tensor._max,axis=axis,keepdim=keepdim)
+    def min(self,axis=None,keepdim=False): return -((-self).max(axis,keepdim))
+
+    def mean(self,axis=None,keepdim=False):
+        out = self.sum(axis=axis,keepdim=keepdim)
+        return out * (math.prod(out.shape)/math.prod(self.shape))
+    
+    def var(self,axis=None,keepdim=False):
+        mean = self.mean(axis=axis,keepdim=keepdim)
+        diff = (self-mean)**2
+        return diff.mean(axis=axis,keepdim=keepdim)
+    
+    def std(self,axis=None,keepdim=False):
+        var = self.var(axis=axis,keepdim=keepdim)
+        return var.sqrt()
+    
+    def triu(): pass
+    def mask_fill(): pass
+    def cat(): pass
+    def fill_(): pass
 
     def matmul(self: Tensor,other: Tensor):
         # broad cast, multiply and sum over axis.
         x,y,dx,dy = self,other,len(self.shape),len(other.shape)
         assert (dx>0 and dy>0),"Must be 1d"
         assert x.shape[-1] == y.shape[axis_y:=-min(len(y.shape),2)],"Cannot matmul shapes."
-        """equivalen to 
-        if w.ndim == 1:
-            axis_w = -1
-        else:
-            axis_w = -2"""
+        """equivalen to if w.ndim == 1:axis_w = -1 else:axis_w = -2"""
         x = x.reshape(*x.shape[0:-1],*[1]*min(dx-1,dy-1,1),x.shape[-1])
         y = y.reshape(*y.shape[0:-2],*[1]*min(dx-1,dy-1,1),*y.shape[axis_y:]).transpose(-1,axis_y)
         return (x*y).sum(axis=-1)
+
+    # TODO if training only else self; use mask*self * 1/(1-p)
+    def dropout(self,p=0.5): None
+    # TODO support arbitrary strides
+    def _pool2d(self,): None
+    def avg_pool2d(self,kernal_size=(2,2)): None
+    def max_pool2d(self,kernal_size=(2,2)): None
     # TODO pool uses reshape and max,mean
-    # TODO pad for backward
+
     def conv2d(self,w,bias=None,**kwargs):
         # im2col, sliding window.
         # TODO add bias.
-        return self._conv2d.apply(self,w,**kwargs)
+        return self._conv2d.apply(self,w,**kwargs) if bias is None else \
+              self._conv2d.apply(self,w,**kwargs)
+    
+    def softmax(self): None
+    
+    # math unary functions
+    def sqrt(self): pass
+    def sign(self): pass
+    def abs(self): pass
+    def square(self): pass
+    def exp(self): pass
+    def log(self): pass
+
+    # activation unary functions
+    def relu(self): pass
+    def sigmoid(self): pass
+    def tanh(self): pass
 
 # act as the context
 class Function:
     def __init__(self,device:str,*tensors:Tensor):
         self.device = device
         self.parents: tuple[Tensor] = tensors
-        self.saved_tensors : list[LazyBuffer]
+        self.saved_tensors : list[LazyBuffer] = []
 
         self.need_input_grad = [t.requires_grad for t in self.parents]
         self.requires_grad = True if any(self.need_input_grad) else False
@@ -248,3 +313,13 @@ def register(name:str,fxn:Function):
 for name,cls in inspect.getmembers(importlib.import_module("minigrad.mlops"),inspect.isclass):
     if name!="Function" and name!="LazyBuffer" and name[0]!="_" and not name.endswith("Ops"): 
         register(name.lower(),cls)
+
+# register the operators
+def register_op(name, fxn):
+    setattr(Tensor, f"__{name}__", fxn)
+    # in place op; +=
+    setattr(Tensor, f"__i{name}__", lambda self,x: self.assign(fxn(self,x)))
+    # right hand op, 1 + Tensor
+    setattr(Tensor, f"__r{name}__", lambda self,x: fxn(x,self))
+for name in ['add', 'sub', 'mul', 'pow', 'matmul', 'truediv']:
+  register_op(name, getattr(Tensor, name if name != 'truediv' else 'div'))
