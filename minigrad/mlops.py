@@ -49,14 +49,32 @@ class Reciprocal(Function):
         # out_grad*(-1)*(1/y)*(1/y)
         return output_grad.unary_op(UnaryOps.NEG).binary_op(BinaryOps.MUL,self.saved_tensors[0]).binary_op(BinaryOps.MUL,self.saved_tensors[0])
 
-class Relu:
-    pass
+class Relu(Function):
+    def forward(self,x):
+        ret = x.unary_op(UnaryOps.RELU)
+        self.save_for_backward(ret)
+        return ret
 
-class Log:
-    pass
+    def backward(self,output_grad):
+        # if x > 0 =1; else 0
+        return output_grad.binary_op(BinaryOps.MUL, self.saved_tensors[0].unary_op(UnaryOps.SIGN))
 
-class Exp:
-    pass
+class Log(Function):
+    def forward(self,x):
+        self.save_for_backward(x)
+        return x.unary_op(UnaryOps.LOG)
+
+    def backward(self,output_grad):
+        return output_grad.binary_op(BinaryOps.DIV,self.saved_tensors[0])
+
+class Exp(Function):
+    def forward(self,x):
+        ret = x.unary_op(UnaryOps.EXP)
+        self.save_for_backward(ret)
+        return ret
+
+    def backward(self,output_grad):
+        return output_grad.binary_op(BinaryOps.MUL,self.saved_tensors[0])
 
 class Slice(Function):
     def forward(self, x : LazyBuffer,arg=None):
@@ -100,10 +118,11 @@ class Sum(Function):
 class Permute(Function):
 
     def forward(self, x: LazyBuffer, order: tuple):
+        self.input_order = order
         return x.movement_op(MovementOps.PERMUTE, order)
     
     def backward(self,output_grad: LazyBuffer):
-        pass
+        return output_grad.movement_op(MovementOps.PERMUTE, sorted(range(len(self.input_order)), key=self.input_order.__getitem__))
 
 class Conv2D(Function):
 
