@@ -75,6 +75,15 @@ class Exp(Function):
 
     def backward(self,output_grad):
         return output_grad.binary_op(BinaryOps.MUL,self.saved_tensors[0])
+    
+class Masked_Fill(Function):
+
+    def forward(self, x,mask,value):
+        self.mask = mask
+        return x.movement_op(MovementOps.MASKED_FILL,(mask,value))
+    
+    def backward(self, output_grad: LazyBuffer):
+        return output_grad.movement_op(MovementOps.MASKED_FILL,(self.mask,0))
 
 class Slice(Function):
     def forward(self, x : LazyBuffer,arg=None):
