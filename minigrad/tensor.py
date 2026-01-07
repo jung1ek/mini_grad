@@ -1,13 +1,14 @@
 from __future__ import annotations
 import numpy as np
 from minigrad.lazy import LazyBuffer
-from typing import Optional, Literal, Sequence
+from typing import Optional, Literal, Sequence, Callable, List
 import functools, inspect, importlib
 import math
 
 # TODO setitem, activation fn,
 # TODO fix shape, 
 class Tensor:
+    training: bool
     def __init__(self,data,device=None,requires_grad=None):
         if isinstance(data,list):
             data = np.array(data,dtype=np.float32)
@@ -43,6 +44,7 @@ class Tensor:
     
     def detach(self): pass
     def numpy(self): return np.array(self.lazydata.toCPU())
+    def requires_grad_(self,value: bool): self.requires_grad=value
 
     @classmethod
     def rand(cls,shape: tuple):
@@ -51,19 +53,22 @@ class Tensor:
     
     # use numpy for now
     @classmethod
-    def zeros_like(): pass
+    def zeros_like(cls,tensor,**kwargs): return cls.zeros(*tensor.shape,**kwargs)
 
     @classmethod
-    def zeros(): pass
+    def zeros(cls,*shape,**kwargs): return cls(np.zeros(shape,dtype=np.float32),**kwargs)
 
     @classmethod
-    def ones(): pass
+    def ones(cls,*shape,**kwargs): return cls(np.ones(shape,dtype=np.float32),**kwargs)
 
     @classmethod
-    def randn(): pass
+    def randn(cls,*shape,**kwargs): return cls(np.random.default_rng().standard_normal(size=shape,dtype=np.float32),**kwargs)
 
     @classmethod
-    def arange(): pass
+    def arange(cls,stop,start=0,**kwargs): return cls(np.arange(stop=stop,start=start,dtype=np.float32),**kwargs)
+
+    @classmethod
+    def xavier_uniform(cls,*shape,gain=1.0,**kwargs): bound = gain*(6/(shape[0]+math.prod(shape[1:])))**0.5 ;return cls(np.random.uniform(-bound,bound,size=shape))
     
     @property
     def shape(self): return self.lazydata.shape
@@ -110,6 +115,7 @@ class Tensor:
     # TODO contiguous, 
     # view is alias for reshape
     def view(self,*shape):
+        #TODO to take axis, and change to shape
         return self.reshape(*shape)
 
     #function to resovle dim, make positive axes
@@ -234,10 +240,21 @@ class Tensor:
         var = self.var(axis=axis,keepdim=keepdim)
         return var.sqrt()
     
-    def triu(): pass
-    def mask_fill(): pass
+    @staticmethod
+    def triu(*shape): return Tensor(np.tril(np.ones(shape),k=0),device=None,requires_grad=False)
+    # Fills elements of self tensor with value where mask is True. (pytorch.org)
+    def masked_fill_(self,mask,value):
+        mask = np.broadcast_to(mask, self.shape)
+        assert mask.shape==self.shape
+        return self.masked_fill.apply(self,mask=mask,value=value)
+    
     def cat(): pass
-    def fill_(): pass
+    # Fills self tensor with the specified value.
+    def fill_(self,value): return None
+    def __eq__(self,other): 
+        assert type(other)==int 
+        return Tensor(self.data == other,device=None,requires_grad=False)
+    def __hash__(self): return id(self)
 
     def matmul(self: Tensor,other: Tensor):
         # broad cast, multiply and sum over axis.
@@ -250,7 +267,12 @@ class Tensor:
         return (x*y).sum(axis=-1)
 
     # TODO if training only else self; use mask*self * 1/(1-p)
-    def dropout(self,p=0.5): None
+    def dropout(self,p=0.5): 
+        #TODO if not training
+        if not Tensor.training:
+            return self
+        mask = np.random.binomial(1,p=1.0-p,size=self.shape)
+        return self*Tensor(mask,device=self.device,requires_grad=False) * (1/(1.0-p))
     # TODO support arbitrary strides
     def _pool2d(self,): None
     def avg_pool2d(self,kernal_size=(2,2)): None
@@ -263,18 +285,34 @@ class Tensor:
         return self._conv2d.apply(self,w,**kwargs) if bias is None else \
               self._conv2d.apply(self,w,**kwargs)
     
-    def softmax(self): None
+    def softmax(self):
+        # TODO normalize, self- max of self
+        _exp = self.exp()
+        sm = _exp.div(_exp.sum(axis=-1,keepdim=True))
+        return sm
+
+    def linear(self,weight,bias):
+        x = self.mul(weight) if len(weight.shape)==1 else self.matmul(weight)
+        return x.add(bias) if bias is not None else x
+    
+    def layer_norm(self,axis=-1,eps=1e-5):
+        y = self - self.mean(axis=axis,keepdim=True)
+        norm = y.div((y*y).mean(axis=axis,keepdim=True).add(eps).sqrt())
+        return norm
+    
+    def sequential(self,ll:List[Callable[[Tensor],Tensor]]): return functools.reduce(lambda x,f: f(x),ll,self)
+
     
     # math unary functions
-    def sqrt(self): pass
+    def sqrt(self): return self.pow(0.5)
     def sign(self): pass
     def abs(self): pass
     def square(self): pass
-    def exp(self): pass
-    def log(self): pass
+    def exp(self): return self._exp.apply(self)
+    def log(self): return self._log.apply(self)
 
     # activation unary functions
-    def relu(self): pass
+    def relu(self): return self._relu.apply(self)
     def sigmoid(self): pass
     def tanh(self): pass
 
@@ -308,8 +346,8 @@ class Function:
         return ret
 
 # register all math "ops" from mlops
-def register(name:str,fxn:Function):
-    setattr(Tensor,"_"+name if hasattr(Tensor, name) else name,fxn)
+def register(name:str,fxn_class:Function):
+    setattr(Tensor,"_"+name if hasattr(Tensor, name) else name,fxn_class)
 for name,cls in inspect.getmembers(importlib.import_module("minigrad.mlops"),inspect.isclass):
     if name!="Function" and name!="LazyBuffer" and name[0]!="_" and not name.endswith("Ops"): 
         register(name.lower(),cls)
