@@ -90,10 +90,17 @@ class Slice(Function):
 
         # the range in the padded tensor that corresponds to the original tensor.
         self.narg = tuple((0-p[0],x.shape[i]-p[0]) for i,p in enumerate(arg))
-        return x.slice(arg=tuple(arg))
+        ret = x.slice(arg=tuple(arg))
+        ret.shape = tuple(end - start for start, end in arg)
+        return ret
     
     def backward(self, output_grad: LazyBuffer):
-        return output_grad.slice(arg=self.narg)
+        ret = output_grad.slice(arg=self.narg)
+        ret.shape = tuple(end - start for start, end in self.narg)
+        return ret
+
+class Max(Function):
+    pass
     
 # Movement ops
 class Reshape(Function):
@@ -130,8 +137,9 @@ class Permute(Function):
         self.input_order = order
         return x.movement_op(MovementOps.PERMUTE, order)
     
+    # argsort; sort the [0,1,2] order based on the key which is input_order
     def backward(self,output_grad: LazyBuffer):
-        return output_grad.movement_op(MovementOps.PERMUTE, sorted(range(len(self.input_order)), key=self.input_order.__getitem__))
+        return output_grad.movement_op(MovementOps.PERMUTE, tuple(sorted(range(len(self.input_order)), key=self.input_order.__getitem__)))
 
 class Conv2D(Function):
 
