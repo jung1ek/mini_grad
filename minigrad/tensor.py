@@ -2,7 +2,7 @@ from __future__ import annotations
 import numpy as np
 from minigrad.lazy import LazyBuffer
 from typing import Optional, Literal, Sequence, Callable, List
-import functools, inspect, importlib
+import functools, inspect, importlib, itertools
 import math
 
 # TODO setitem, activation fn,
@@ -36,7 +36,10 @@ class Tensor:
 
     @property
     def data(self):
-        return self.lazydata.realize()
+        return self.numpy()
+    
+    def size(self,x):
+        return self.shape[x]
     
     @property
     def device(self):
@@ -44,7 +47,7 @@ class Tensor:
     
     def detach(self): pass
     def numpy(self): return np.array(self.lazydata.toCPU())
-    def requires_grad_(self,value: bool): self.requires_grad=value
+    def requires_grad_(self,value: bool): self.requires_grad=value; return self
 
     @classmethod
     def rand(cls,shape: tuple):
@@ -63,6 +66,9 @@ class Tensor:
 
     @classmethod
     def randn(cls,*shape,**kwargs): return cls(np.random.default_rng().standard_normal(size=shape,dtype=np.float32),**kwargs)
+
+    @classmethod
+    def empty(cls, *shape, **kwargs): return cls(np.empty(shape, dtype=np.float32), **kwargs)
 
     @classmethod
     def arange(cls,stop,start=0,**kwargs): return cls(np.arange(stop=stop,start=start,dtype=np.float32),**kwargs)
@@ -131,7 +137,6 @@ class Tensor:
         assert sorted(order_arg)==list(range(len(self.shape))),"Invalide Permutation"
         return self._permute.apply(self,order=order_arg)
 
-    #TODO transpose uses permute
     def transpose(self, dim0=1,dim1=0):
         order = list(range(len(self.shape)))
         order[dim0],order[dim1] = order[dim1],order[dim0]
@@ -193,7 +198,18 @@ class Tensor:
         # slice all dimensions explictely (0, dim)
         arg = arg + [(0, self.shape[i]) for i in range(len(arg),len(self.shape))]
         # slice based on slice indices and reshape; need reshape (slice always preserves rank.) to drop int dim
-        return self.slice.apply(self,arg=arg).reshape(*new_shape)
+        return self.slice.apply(self,arg=arg).reshape(*new_shape if len(new_shape) else (1,))
+    
+    def cat(self, *args, dim=0):
+        dim = (dim + len(self.shape)) if dim < 0 else dim
+        for y in args:
+            assert len(y.shape) == len(self.shape) and all(y.shape[i] == s for i,s in enumerate(self.shape) if i != dim)
+        args = [self] + list(args)
+        shape_cumsum = [0, *itertools.accumulate(y.shape[dim] for y in args)]
+        slc = [[(0, s) for s in self.shape] for _ in args]
+        for s,k in zip(slc, shape_cumsum):
+            s[dim] = (-k, shape_cumsum[-1]-k)
+        return functools.reduce(Tensor.__iadd__, [arg.slice.apply(arg,arg=s) for arg,s in zip(args, slc)])
     
     # broad-casted binary ops
     @staticmethod
@@ -248,7 +264,6 @@ class Tensor:
         assert mask.shape==self.shape
         return self.masked_fill.apply(self,mask=mask,value=value)
     
-    def cat(): pass
     # Fills self tensor with the specified value.
     def fill_(self,value): return None
     def __eq__(self,other): 
@@ -284,14 +299,16 @@ class Tensor:
         # TODO add bias.
         return self._conv2d.apply(self,w,**kwargs) if bias is None else \
               self._conv2d.apply(self,w,**kwargs)
-    
-    def softmax(self):
+    def logsoftmax(): pass # overflow resolve
+    def softmax(self,dim=-1):
+        # other is np.array while doing the broad cast [other], and add extra dim
+        self = self - self.data.max(dim,keepdims=True)
         # TODO normalize, self- max of self
         _exp = self.exp()
-        sm = _exp.div(_exp.sum(axis=-1,keepdim=True))
+        sm = _exp.div(_exp.sum(axis=dim,keepdim=True))
         return sm
 
-    def linear(self,weight,bias):
+    def linear(self,weight,bias=None):
         x = self.mul(weight) if len(weight.shape)==1 else self.matmul(weight)
         return x.add(bias) if bias is not None else x
     
