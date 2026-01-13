@@ -1,6 +1,14 @@
 from collections import namedtuple
 
+def normalize_axis(axis, ndim):
+    if axis is None:
+        return tuple(range(ndim))
+    if isinstance(axis, int):
+        axis = (axis,)
+    return tuple(a if a >= 0 else a + ndim for a in axis)
+
 # axis based on the old shape and new shape
+# TODO issue, while (3,5,1) - > (3,5,6) , gives ()
 def shape_to_axis(old_shape,new_shape):
     # Case 1: keepdims=True
     if len(old_shape) == len(new_shape):
@@ -17,7 +25,7 @@ def shape_to_axis(old_shape,new_shape):
     return tuple(axes)
 
 # new shape based on the axis to sum
-def reduce_shape(shape, axis,keepdims=False):
+def reduce_shape(shape, axis,keepdim=False):
     
     # convert axis in to list of axes
     ndim = len(shape)
@@ -28,7 +36,7 @@ def reduce_shape(shape, axis,keepdims=False):
     else:
         axes = [(a%ndim) for a in axis]
     
-    if keepdims:
+    if keepdim:
         # change reduce axis to 1
         new_shape = [
             1 if i in axes else shape[i]
@@ -40,6 +48,11 @@ def reduce_shape(shape, axis,keepdims=False):
             shape[i] for i in range(ndim) if i not in axes
         ]
     return tuple(new_shape)
+
+# def reduce_shape(shape, axis): return tuple(1 if i in axis else shape[i] for i in range(len(shape)))
+def shape_to_axis(old_shape, new_shape):
+  assert len(old_shape) == len(new_shape), "reduce shapes must have same dimensions"
+  return tuple([i for i,(a,b) in enumerate(zip(old_shape, new_shape)) if a != b])
 
 ConvArgs = namedtuple("ConvArgs",['H', 'W', 'groups', 'rcout', 'cin', 'oy', 'ox', 'iy', 'ix', 'sy', 'sx', 'bs', 'cout', 'py', 'py_', 'px', 'px_', 'dy', 'dx', 'out_shape'])
 def get_conv_args(x_shape, w_shape, stride=1, groups=1, padding=0, dilation=1, out_shape=None):
