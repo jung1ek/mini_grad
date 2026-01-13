@@ -7,6 +7,7 @@ import math
 
 # TODO setitem, activation fn,
 # TODO fix shape, 
+# other is np.array while doing the broad cast [other], and add extra dim
 class Tensor:
     training: bool
     def __init__(self,data,device=None,requires_grad=None):
@@ -175,7 +176,7 @@ class Tensor:
                 if g is not None and t.requires_grad:
                     assert g.shape==t.shape, f"grad shape must match tensor shape in {self._ctx!r}, {g.shape!r} != {t.shape!r}"
                     t.grad = g if t.grad is None else (t.grad + g)  # Gradient accumulation.
-            # for graph visual
+            # for graph visual; comment it
             # del node._ctx
     
     def __getitem__(self,value):
@@ -201,9 +202,12 @@ class Tensor:
         return self.slice.apply(self,arg=arg).reshape(*new_shape if len(new_shape) else (1,))
     
     def cat(self, *args, dim=0):
+        # make positive dim
         dim = (dim + len(self.shape)) if dim < 0 else dim
+        # check the shape for concat,
         for y in args:
             assert len(y.shape) == len(self.shape) and all(y.shape[i] == s for i,s in enumerate(self.shape) if i != dim)
+        # make a list of Tensors to concat; self itself too.
         args = [self] + list(args)
         shape_cumsum = [0, *itertools.accumulate(y.shape[dim] for y in args)]
         slc = [[(0, s) for s in self.shape] for _ in args]
@@ -299,13 +303,16 @@ class Tensor:
         # TODO add bias.
         return self._conv2d.apply(self,w,**kwargs) if bias is None else \
               self._conv2d.apply(self,w,**kwargs)
-    def logsoftmax(): pass # overflow resolve
-    def softmax(self,dim=-1):
-        # other is np.array while doing the broad cast [other], and add extra dim
-        self = self - self.data.max(dim,keepdims=True)
-        # TODO normalize, self- max of self
-        _exp = self.exp()
-        sm = _exp.div(_exp.sum(axis=dim,keepdim=True))
+    def logsoftmax(self,dim=-1):
+        m = self - self.max(axis=-1,keepdim=True)
+        _exp = m.exp()
+        return m - (_exp.sum(axis=-1,keepdim=True)).log()
+    
+    def softmax(self,axis=-1):
+        # normalize, self- max of self, to solve overflow
+        m = self - self.max(axis=len(self.shape)-1,keepdim=True)
+        _exp = m.exp()
+        sm = _exp.div(_exp.sum(axis=len(self.shape)-1,keepdim=True))
         return sm
 
     def linear(self,weight,bias=None):
