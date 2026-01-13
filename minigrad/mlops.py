@@ -1,7 +1,7 @@
 from __future__ import annotations
 from minigrad.tensor import Function
 from minigrad.lazy import MovementOps, LazyBuffer,BinaryOps,ReduceOps,ProcessingOps, UnaryOps
-from minigrad.helpers import reduce_shape, shape_to_axis, ConvArgs, get_conv_args, _normalize_axis
+from minigrad.helpers import reduce_shape, shape_to_axis, ConvArgs, get_conv_args, normalize_axis
 
 class Mul(Function):
     def forward(self, x: LazyBuffer, y: LazyBuffer)-> LazyBuffer:
@@ -152,7 +152,7 @@ class Sum(Function):
             return None
 
         # normalize the axis,; -1 = last dim
-        axis = _normalize_axis(self.axis, len(self.input_shape))
+        axis = normalize_axis(self.axis, len(self.input_shape))
 
         grad = output_grad
 
