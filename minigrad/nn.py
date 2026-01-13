@@ -63,12 +63,23 @@ class Module:
         # add parameters from child modules recursively; extend the list from the result of child moudle
         for moudule in self.modules():
             result.extend(moudule.parameters()) # like concat two lists
+        return result
 
     def add_parameter(self,k:str,v:Any) -> Parameter:
         val = Parameter(v,k)
         self.__dict__["_parameters"][k]=val
         return val
+    
+    def add_module(self,k:str,m:Any) -> Module:
+        self.__dict__["_modules"][k] = m
 
+class ModuleList:
+    
+    def __init__(self,modules: Sequence[Module]):
+        self.modules = modules
+    
+    def __getitem__(self,index):
+        return self.modules[index]
 
 
 
