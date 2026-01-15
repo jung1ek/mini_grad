@@ -51,11 +51,14 @@ class LazyBuffer:
         _realize = {LoadOps: self._realize_loadops,BinaryOps: self._realize_binaryops,
                     ReduceOps: self._realize_reduceops, MovementOps: self._realize_movementops,
                     ProcessingOps: self._realize_processingops, UnaryOps: self._realize_unaryops}
-        self.realized = _realize[self.op_type]()
-        #TODO for padding shape calc
-        # assert self.realized.shape == self.shape,f"Shape mismatch: expected {self.shape}, got {self.realized.shape}"
         
+        # Realize via AST
+        self.realized = _realize[self.op_type]()
+        assert self.realized.shape == self.shape,f"Shape mismatch: expected {self.shape}, got {self.realized.shape}"
+        
+        # free graph memory
         del self.op
+        del self.children
         return self.realized
 
     @staticmethod
@@ -69,14 +72,18 @@ class LazyBuffer:
     
     # creating lazy buffer through operations, z(new_buffer) = x(current_buffer)+(op) y(other_buffer)
     def movement_op(self,op:MovementOps,arg:tuple):
-        #TODO for pad and shrink
         if op is MovementOps.PERMUTE:
             # parameter shape is order for permute op.
             shape = tuple([self.shape[dim_idx] for dim_idx in arg])
         elif op is MovementOps.MASKED_FILL:
             shape = self.shape
+        elif op is MovementOps.PAD:
+            shape = tuple([self.shape[i]+before_i+after_i for i,(before_i,after_i) in enumerate(arg)])
+        elif op is MovementOps.SHRINK:
+            shape = tuple([end-start for start,end in arg])
         else:
             shape = arg
+        # merge 
         return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),arg=arg))
     
     def binary_op(self,op:BinaryOps,other:LazyBuffer): # x(self) & y(other)

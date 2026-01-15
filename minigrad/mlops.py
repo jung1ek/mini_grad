@@ -35,8 +35,10 @@ class Pow(Function):
         x,y,powxy = self.saved_tensors
         # y*x**y-1; y*(x**y)/x
         # log(x)*pow(x,y)
-        return output_grad.binary_op(BinaryOps.MUL,y.binary_op(BinaryOps.MUL,x.binary_op(BinaryOps.POW,y).binary_op(BinaryOps.DIV,x))) if self.need_input_grad[0] else None,\
-            output_grad.binary_op(BinaryOps.MUL,x.unary_op(UnaryOps.LOG).binary_op(BinaryOps.MUL,powxy)) if self.need_input_grad[1] else None
+        return output_grad.binary_op(BinaryOps.MUL,y.binary_op(BinaryOps.MUL,x.binary_op(BinaryOps.POW,y)\
+                                    .binary_op(BinaryOps.DIV,x))) if self.need_input_grad[0] else None,\
+            output_grad.binary_op(BinaryOps.MUL,x.unary_op(UnaryOps.LOG)\
+                                  .binary_op(BinaryOps.MUL,powxy)) if self.need_input_grad[1] else None
 
 class Reciprocal(Function):
     def forward(self,x):
@@ -47,7 +49,8 @@ class Reciprocal(Function):
     def backward(self,output_grad: LazyBuffer):
         # x**-1; 1/x * 1/x
         # out_grad*(-1)*(1/y)*(1/y)
-        return output_grad.unary_op(UnaryOps.NEG).binary_op(BinaryOps.MUL,self.saved_tensors[0]).binary_op(BinaryOps.MUL,self.saved_tensors[0]) if self.need_input_grad[0] else None
+        return output_grad.unary_op(UnaryOps.NEG).binary_op(BinaryOps.MUL,self.saved_tensors[0])\
+            .binary_op(BinaryOps.MUL,self.saved_tensors[0]) if self.need_input_grad[0] else None
 
 class Relu(Function):
     def forward(self,x):
@@ -57,7 +60,8 @@ class Relu(Function):
 
     def backward(self,output_grad):
         # if x > 0 =1; else 0
-        return output_grad.binary_op(BinaryOps.MUL, self.saved_tensors[0].unary_op(UnaryOps.SIGN)) if self.need_input_grad[0] else None
+        return output_grad.binary_op(BinaryOps.MUL, self.saved_tensors[0].unary_op(UnaryOps.SIGN))\
+              if self.need_input_grad[0] else None
 
 class Log(Function):
     def forward(self,x):
@@ -83,7 +87,8 @@ class Masked_Fill(Function):
         return x.movement_op(MovementOps.MASKED_FILL,(mask,value))
     
     def backward(self, output_grad: LazyBuffer):
-        return output_grad.movement_op(MovementOps.MASKED_FILL,(self.mask,0)) if self.need_input_grad[0] else None
+        return output_grad.movement_op(MovementOps.MASKED_FILL,(self.mask,0))\
+             if self.need_input_grad[0] else None
 
 class Slice(Function):
     def forward(self, x : LazyBuffer,arg=None):
@@ -91,12 +96,11 @@ class Slice(Function):
         # the range in the padded tensor that corresponds to the original tensor.
         self.narg = tuple((0-p[0],x.shape[i]-p[0]) for i,p in enumerate(arg))
         ret = x.slice(arg=tuple(arg))
-        ret.shape = tuple(end - start for start, end in arg)
+        assert ret.shape == tuple(end - start for start, end in arg)
         return ret
     
     def backward(self, output_grad: LazyBuffer):
         ret = output_grad.slice(arg=self.narg)
-        ret.shape = tuple(end - start for start, end in self.narg)
         return ret if self.need_input_grad[0] else None
 
 class Max(Function):
@@ -141,38 +145,25 @@ class Sum(Function):
 
     def forward(self, x: LazyBuffer, axis=None, keepdim=False):
         self.input_shape = x.shape
-        self.input_shape = x.shape
-        self.axis = axis
-        self.keepdim = keepdim
+        self.axis, self.keepdim = axis, keepdim
         return x.reduce_op(ReduceOps.SUM,axis,keepdim)
 
     def backward(self, output_grad: LazyBuffer):
-
         if not self.need_input_grad[0]:
             return None
-
+        
         # normalize the axis,; -1 = last dim
         axis = normalize_axis(self.axis, len(self.input_shape))
-
         grad = output_grad
 
-        # 🔥 If keepdim=False, reinsert dimensions
+        # If keepdim=False, reinsert dimensions
         if not self.keepdim:
             new_shape = list(grad.shape)
-            for ax in sorted(axis):
-                new_shape.insert(ax, 1)
-
-            grad = grad.movement_op(
-                MovementOps.RESHAPE,
-                tuple(new_shape)
-            )
-
-        # 🔥 Now broadcast safely
-        grad = grad.movement_op(
-            MovementOps.EXPAND,
-            self.input_shape
-        )
-        return grad
+            for ax in sorted(axis): new_shape.insert(ax, 1)
+            grad = grad.movement_op(MovementOps.RESHAPE,tuple(new_shape))
+            
+        # Now broadcast safely
+        return grad.movement_op(MovementOps.EXPAND,self.input_shape)
     
 class Permute(Function):
 
