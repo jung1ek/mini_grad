@@ -83,7 +83,16 @@ class LazyBuffer:
             shape = tuple([end-start for start,end in arg])
         else:
             shape = arg
-        # merge 
+        
+        # merge the consecutive op into single; a -> reshpae -> b -> reshape; a -> reshape (arg is merge.); a(src) of b(self)
+        if self.realized is None and self.op.op==op:
+            if op in [MovementOps.RESHAPE, MovementOps.EXPAND, MovementOps.SHRINK]:
+                return self.op.src[0].movement_op(op,arg)
+            elif op is MovementOps.PERMUTE:
+                return self.op.src[0].movement_op(op,tuple(self.op.arg[i] for i in arg))
+            elif op is MovementOps.PAD:
+                return self.op.src[0].movement_op(op,tuple((b1+b2,a1+a2) for (b1,a1),(b2,a2) in zip(self.op.arg,arg)))
+            
         return LazyBuffer(shape=shape,device=self.device,op_type=MovementOps,op=LazyOp(op,(self,),arg=arg))
     
     def binary_op(self,op:BinaryOps,other:LazyBuffer): # x(self) & y(other)
