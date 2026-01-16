@@ -5,8 +5,7 @@ from typing import Optional, Literal, Sequence, Callable, List
 import functools, inspect, importlib, itertools
 import math
 
-# TODO setitem, activation fn,
-# TODO fix shape, 
+# TODO fix shape,
 # other is np.array while doing the broad cast [other], and add extra dim
 class Tensor:
     training: bool
@@ -177,7 +176,7 @@ class Tensor:
                     assert g.shape==t.shape, f"grad shape must match tensor shape in {self._ctx!r}, {g.shape!r} != {t.shape!r}"
                     t.grad = g if t.grad is None else (t.grad + g)  # Gradient accumulation.
             # for graph visual; comment it
-            # del node._ctx
+            del node._ctx
     
     def __getitem__(self,value):
         arg, new_shape = [],[]
@@ -198,7 +197,7 @@ class Tensor:
 
         # slice all dimensions explictely (0, dim)
         arg = arg + [(0, self.shape[i]) for i in range(len(arg),len(self.shape))]
-        # slice based on slice indices and reshape; need reshape (slice always preserves rank.) to drop int dim
+        # slice based on slice indices and reshape; need reshape (slice always preserves rank.) to drop 1 dim
         return self.slice.apply(self,arg=arg).reshape(*new_shape if len(new_shape) else (1,))
     
     def cat(self, *args, dim=0):
@@ -292,6 +291,7 @@ class Tensor:
             return self
         mask = np.random.binomial(1,p=1.0-p,size=self.shape)
         return self*Tensor(mask,device=self.device,requires_grad=False) * (1/(1.0-p))
+    
     # TODO support arbitrary strides
     def _pool2d(self,): None
     def avg_pool2d(self,kernal_size=(2,2)): None
@@ -329,16 +329,17 @@ class Tensor:
     
     # math unary functions
     def sqrt(self): return self.pow(0.5)
-    def sign(self): pass
-    def abs(self): pass
-    def square(self): pass
+    def sign(self): return self / (self.abs() + 1e-10)  
+    def abs(self): return self.relu() + (-self).relu()
+    def square(self): return self*self
     def exp(self): return self._exp.apply(self)
     def log(self): return self._log.apply(self)
 
     # activation unary functions
     def relu(self): return self._relu.apply(self)
-    def sigmoid(self): pass
-    def tanh(self): pass
+    def sigmoid(self): return (1.0+(-self).exp()).reciprocal()
+    def tanh(self): return 2.0 * ((2.0*self).sigmoid())-1.0
+    def gelu(self): return 0.5 * self * (1 + (self * 0.7978845608 * (1+0.044715 * self * self)).tanh())
 
 # act as the context
 class Function:
