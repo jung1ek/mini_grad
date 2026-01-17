@@ -13,7 +13,6 @@ sys.setrecursionlimit(10000)
 class Device:
     pass
 
-# TODO two ops in a row is one op. merge them if unresolved, movement ops
 # TODO optimization, 
 class LazyBuffer:
     def __init__(self,shape,device,op_type:OpType,op:LazyOp):
@@ -104,12 +103,30 @@ class LazyBuffer:
     def reduce_op(self, op: ReduceOps,axis,keepdim):
         return LazyBuffer(reduce_shape(self.shape,axis=axis,keepdim=keepdim),self.device,ReduceOps,LazyOp(op,(self,),arg=(axis,keepdim)))
     
-    def processing_op(x,op:ProcessingOps,w:LazyBuffer,arg: ConvArgs):
-        # TODO, implement conv2d using expand,reshape,mul,sum
-        return LazyBuffer(arg.out_shape,x.device,ProcessingOps,LazyOp(op,(x,w),arg))
-    
+    def processing_op(x,op:ProcessingOps,w:LazyBuffer,C: ConvArgs):
+        assert op==ProcessingOps.CONV
+        # pad
+        x = x.slice(((0, x.shape[0]), (0, x.shape[1]), (-C.py, x.shape[2]+C.py_), (-C.px, x.shape[3]+C.px_)))
+        # strided view, with channel out single dimension; rcout, channel out per group
+        x = x.movement_op(MovementOps.STRIDED, (
+        (C.bs, C.groups*C.cin*x.shape[2]*x.shape[3]), (C.groups, C.cin*x.shape[2]*x.shape[3]),
+        (1, 1), (C.oy, C.sy*x.shape[3]), (C.ox, C.sx),
+        (C.cin, x.shape[2]*x.shape[3]), (C.H, C.dy*x.shape[3]), (C.W, C.dx)))
+        # expand to the broadcasting shape
+        x = x.movement_op(MovementOps.EXPAND, (C.bs, C.groups, C.rcout, C.oy, C.ox, C.cin, C.H, C.W))
+        # braodcast the w to match x
+        w = w.movement_op(MovementOps.RESHAPE, (1, C.groups, C.rcout, 1, 1, C.cin, C.H, C.W)) \
+            .movement_op(MovementOps.EXPAND, (C.bs, C.groups, C.rcout, C.oy, C.ox, C.cin, C.H, C.W))
+        # mul and reduce,
+        return x.binary_op(BinaryOps.MUL, w).reduce_op(ReduceOps.SUM, (5, 6, 7),True) \
+                                            .movement_op(MovementOps.RESHAPE, (C.bs, C.cout, C.oy, C.ox))
+        
     def slice(x, arg):
         # Pad first then shrink, pad to make valid indices; only if needed
         padding = [(max(0,-p[0]),max(0,p[1]-x.shape[i])) for i,p in enumerate(arg)]
         return x.movement_op(MovementOps.PAD,padding).movement_op(MovementOps.SHRINK,tuple((p[0]+padding[i][0],p[1]+padding[i][0]) for i,p in enumerate(arg)))
+    
+    def elementwise_op(op,*srcs):
+        srcs = None
+        return LazyBuffer
 
