@@ -1,11 +1,20 @@
 from collections import namedtuple
 
+# normalized the axes
 def normalize_axis(axis, ndim):
     if axis is None:
         return tuple(range(ndim))
     if isinstance(axis, int):
         axis = (axis,)
     return tuple(a if a >= 0 else a + ndim for a in axis)
+
+# add 1 dims to the reduced axes, for keepdim false, 
+def keepdim_shape_from_reduced(out_shape, axis, ndim):
+    shape = list(out_shape)
+    for ax in sorted(axis):
+        shape.insert(ax, 1)
+    assert len(shape) == ndim
+    return tuple(shape)
 
 # axis based on the old shape and new shape
 def shape_to_axis(old_shape, new_shape):
