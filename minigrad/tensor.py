@@ -233,7 +233,7 @@ class Tensor:
     def sub(self,x): return Tensor.broadcasted(Tensor._sub,self,x)
     def pow(self,x): return Tensor.broadcasted(Tensor._pow,self,x)
     # for  number y, it get 1/number. then broadcast the value;
-    def div(self,y): return self * (y.reciprocal.apply(y) if isinstance(y,Tensor) else (1/y))
+    def div(self,y): return self * (y.reciprocal() if isinstance(y,Tensor) else (1/y))
 
     # can be sub function.
     def __neg__(self): return 0.0-self
@@ -284,25 +284,31 @@ class Tensor:
         y = y.reshape(*y.shape[0:-2],*[1]*min(dx-1,dy-1,1),*y.shape[axis_y:]).transpose(-1,axis_y)
         return (x*y).sum(axis=-1)
 
-    # TODO if training only else self; use mask*self * 1/(1-p)
+    dot = matmul
+    
+    # if training only else self; use mask*self * 1/(1-p)
     def dropout(self,p=0.5): 
-        #TODO if not training
         if not Tensor.training:
             return self
         mask = np.random.binomial(1,p=1.0-p,size=self.shape)
         return self*Tensor(mask,device=self.device,requires_grad=False) * (1/(1.0-p))
     
     # TODO support arbitrary strides
-    def _pool2d(self,): None
-    def avg_pool2d(self,kernal_size=(2,2)): None
-    def max_pool2d(self,kernal_size=(2,2)): None
-    # TODO pool uses reshape and max,mean
+    def _pool2d(self,py,px):
+        assert self.ndim==4
+        # trim if needed
+        xt = self[:,:,:self.shape[2]-self.shape[2]%py,:self.shape[3]-self.shape[3]%px] if (self.shape[2]%py!=0) or (self.shape[3]%px!=0) else self
+        # grouping based on kernal, (1,1,4,4) -> (1,1,2,2,2,2)
+        return xt.reshape(xt.shape[0],xt.shape[1],xt.shape[2]//py,py,xt.shape[3]//px,px)
+    
+    def avg_pool2d(self,kernal_size=(2,2)): self._pool2d(*kernal_size).mean(axis=(3,5))
+    def max_pool2d(self,kernal_size=(2,2)): self._pool2d(*kernal_size).max(axis=(3,5))
 
     def conv2d(self,w,bias=None,**kwargs):
         # im2col, sliding window.
-        # TODO add bias.
+        # TODO add bias, reshape bias to [1,-1,1,1].
         return self._conv2d.apply(self,w,**kwargs) if bias is None else \
-              self._conv2d.apply(self,w,**kwargs)
+              self._conv2d.apply(self,w,**kwargs).add(bias)
     def logsoftmax(self,dim=-1):
         m = self - self.max(axis=-1,keepdim=True)
         _exp = m.exp()
@@ -328,6 +334,7 @@ class Tensor:
 
     
     # math unary functions
+    def reciprocal(self): return self._reciprocal.apply(self)
     def sqrt(self): return self.pow(0.5)
     def sign(self): return self / (self.abs() + 1e-10)  
     def abs(self): return self.relu() + (-self).relu()
