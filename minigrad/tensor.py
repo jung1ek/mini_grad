@@ -38,14 +38,16 @@ class Tensor:
     def data(self):
         return self.numpy()
     
-    def size(self,x):
+    def size(self,x=None):
+        if x is None:
+            return math.prod(self.shape)
         return self.shape[x]
     
     @property
     def device(self):
         return self.lazydata.device
     
-    def detach(self): pass
+    def detach(self): return Tensor(self.lazydata,device=self.device,requires_grad=False)
     def numpy(self): return np.array(self.lazydata.toCPU())
     def requires_grad_(self,value: bool): self.requires_grad=value; return self
 
@@ -93,10 +95,20 @@ class Tensor:
         self.lazydata = x.lazydata
         return x
     
-    #TODO halding unsupported shape
-    def reshape(self,*shape) : return self._reshape.apply(self,shape=shape)
-    def expand(self,*shape) : return self._expand.apply(self,shape=shape)
+    def reshape(self,*shape) :
+        known_dims = [s for s in shape if s!=-1]
+        inferred_dim = self.size()//math.prod(known_dims)
+        shape = tuple(inferred_dim if dim == -1 else dim for dim in shape)
+        assert self.size() == math.prod(shape)
+        return self._reshape.apply(self,shape=shape)
+    
+    #TODO check broadcastable shape
+    def expand(self,*shape):
+        assert len(shape)==self.ndim
+        assert (s==e for e,s in zip(self.shape,shape) if s!=1 )
+        return self._expand.apply(self,shape=shape)
 
+    @property
     def ndim(self) -> int: return len(self.shape)
     
     def flatten(self,start_dim=0,end_dim=-1):
@@ -176,7 +188,7 @@ class Tensor:
                     assert g.shape==t.shape, f"grad shape must match tensor shape in {self._ctx!r}, {g.shape!r} != {t.shape!r}"
                     t.grad = g if t.grad is None else (t.grad + g)  # Gradient accumulation.
             # for graph visual; comment it
-            del node._ctx
+            # del node._ctx
     
     def __getitem__(self,value):
         arg, new_shape = [],[]
@@ -198,7 +210,7 @@ class Tensor:
         # slice all dimensions explictely (0, dim)
         arg = arg + [(0, self.shape[i]) for i in range(len(arg),len(self.shape))]
         # slice based on slice indices and reshape; need reshape (slice always preserves rank.) to drop 1 dim
-        return self.slice.apply(self,arg=arg).reshape(*new_shape if len(new_shape) else (1,))
+        return self.slice.apply(self,arg=arg).reshape(*new_shape if len(new_shape) else ())
     
     def cat(self, *args, dim=0):
         # make positive dim
@@ -285,7 +297,7 @@ class Tensor:
         return (x*y).sum(axis=-1)
 
     dot = matmul
-    
+
     # if training only else self; use mask*self * 1/(1-p)
     def dropout(self,p=0.5): 
         if not Tensor.training:
@@ -301,14 +313,14 @@ class Tensor:
         # grouping based on kernal, (1,1,4,4) -> (1,1,2,2,2,2)
         return xt.reshape(xt.shape[0],xt.shape[1],xt.shape[2]//py,py,xt.shape[3]//px,px)
     
-    def avg_pool2d(self,kernal_size=(2,2)): self._pool2d(*kernal_size).mean(axis=(3,5))
-    def max_pool2d(self,kernal_size=(2,2)): self._pool2d(*kernal_size).max(axis=(3,5))
+    def avg_pool2d(self,kernel_size=(2,2)): return self._pool2d(*kernel_size).mean(axis=(3,5))
+    def max_pool2d(self,kernel_size=(2,2)): return self._pool2d(*kernel_size).max(axis=(3,5))
 
     def conv2d(self,w,bias=None,**kwargs):
         # im2col, sliding window.
         # TODO add bias, reshape bias to [1,-1,1,1].
         return self._conv2d.apply(self,w,**kwargs) if bias is None else \
-              self._conv2d.apply(self,w,**kwargs).add(bias)
+              self._conv2d.apply(self,w,**kwargs).add(bias.reshape(*[1,-1,1,1]))
     def logsoftmax(self,dim=-1):
         m = self - self.max(axis=-1,keepdim=True)
         _exp = m.exp()
