@@ -23,7 +23,8 @@ class CPUBuffer(np.ndarray,GenericExecAST):
         MovementOps.STRIDED: lambda x,args: CPUBuffer.strided(x,args),
         MovementOps.SHRINK: lambda x, arg: x[tuple(slice(p[0],p[1],None) for p in arg)],
         MovementOps.PAD: lambda x, padding: CPUBuffer.pad(x,padding),
-        MovementOps.MASKED_FILL: lambda x,args: x.masked_fill(*args)
+        MovementOps.MASKED_FILL: lambda x,args: x.masked_fill(*args),
+        MovementOps.FLIP: lambda x, axis: x.flip(axis)
     }
 
     # object methods

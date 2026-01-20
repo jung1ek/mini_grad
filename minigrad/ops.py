@@ -6,7 +6,7 @@ import sys
 BinaryOps = Enum("BinaryOps",["MUL","ADD","SUB","POW","DIV","CMPEQ"])
 UnaryOps = Enum("UnaryOps",["RELU","EXP","RECIPROCAL","LOG","NEG","SIGN"])
 LoadOps = Enum("LoadOps",["FROMCPU"])
-MovementOps = Enum("MovementOps",["EXPAND","RESHAPE","PERMUTE","STRIDED","PAD","SHRINK","MASKED_FILL"])
+MovementOps = Enum("MovementOps",["EXPAND","RESHAPE","PERMUTE","STRIDED","PAD","SHRINK","MASKED_FILL","FLIP"])
 ReduceOps = Enum("ReduceOps",["SUM","MAX"])
 ProcessingOps = Enum("ProcessingOps",["CONV1D","CONV"])
 
