@@ -80,6 +80,8 @@ class LazyBuffer:
             shape = tuple([self.shape[i]+before_i+after_i for i,(before_i,after_i) in enumerate(arg)])
         elif op is MovementOps.SHRINK:
             shape = tuple([end-start for start,end in arg])
+        elif op is MovementOps.STRIDED:
+            shape = tuple([a[0] for a in arg])
         else:
             shape = arg
         
@@ -107,7 +109,7 @@ class LazyBuffer:
         assert op==ProcessingOps.CONV
         # pad
         x = x.slice(((0, x.shape[0]), (0, x.shape[1]), (-C.py, x.shape[2]+C.py_), (-C.px, x.shape[3]+C.px_)))
-        # strided view, with channel out single dimension; rcout, channel out per group
+        # strided view of each new shape, with channel out single dimension; rcout, channel out per group
         x = x.movement_op(MovementOps.STRIDED, (
         (C.bs, C.groups*C.cin*x.shape[2]*x.shape[3]), (C.groups, C.cin*x.shape[2]*x.shape[3]),
         (1, 1), (C.oy, C.sy*x.shape[3]), (C.ox, C.sx),
