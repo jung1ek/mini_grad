@@ -1,7 +1,7 @@
 from __future__ import annotations
 from minigrad.tensor import Function
 from minigrad.lazy import MovementOps, LazyBuffer,BinaryOps,ReduceOps,ProcessingOps, UnaryOps
-from minigrad.helpers import reduce_shape, shape_to_axis, ConvArgs, get_conv_args, normalize_axis
+from minigrad.helpers import reduce_shape, shape_to_axis, ConvArgs, get_conv_args, normalize_axis, keepdim_shape_from_reduced
 
 class Mul(Function):
     def forward(self, x: LazyBuffer, y: LazyBuffer)-> LazyBuffer:
@@ -106,18 +106,31 @@ class Slice(Function):
 class Max(Function):
     def forward(self,x,axis=None,keepdim=False):
         ret = x.reduce_op(ReduceOps.MAX,axis,keepdim)
+        self.axis = normalize_axis(axis,len(x.shape))
+        self.keepdim = keepdim
         self.save_for_backward(x,ret)
         return ret
     
+    # TODO 
     def backward(self, grad_output):
+        if not self.need_input_grad[0]:
+            return None
         x, ret = self.saved_tensors
+
+        # put 1 in the reduced dim shape if keepdim is False.
+        if not self.keepdim:
+            ret = ret.movement_op(MovementOps.RESHAPE,keepdim_shape_from_reduced(ret.shape, self.axis, len(x.shape)))
         # 1s in locations where the max was chosen (can be two locations)
         max_is_1s = x.binary_op(BinaryOps.CMPEQ, ret.movement_op(MovementOps.EXPAND, x.shape))
         # # sum of locations, averaged
-        div = max_is_1s.reduce_op(ReduceOps.SUM, shape_to_axis(max_is_1s.shape,grad_output.shape),True)
+        div = max_is_1s.reduce_op(ReduceOps.SUM, self.axis,True)
+
         div = div.movement_op(MovementOps.EXPAND, x.shape)
         max_is_amount = max_is_1s.binary_op(BinaryOps.DIV, div)
 
+        # put 1 in reduced dims; 
+        if not self.keepdim:
+            grad_output = grad_output.movement_op(MovementOps.RESHAPE,keepdim_shape_from_reduced(grad_output.shape, self.axis, len(x.shape)))
         grad_output_expanded = grad_output.movement_op(MovementOps.EXPAND, x.shape)
         return max_is_amount.binary_op(BinaryOps.MUL, grad_output_expanded) if self.need_input_grad[0] else None
     
@@ -145,21 +158,18 @@ class Sum(Function):
 
     def forward(self, x: LazyBuffer, axis=None, keepdim=False):
         self.input_shape = x.shape
-        self.axis, self.keepdim = axis, keepdim
+        self.axis, self.keepdim = normalize_axis(axis, len(self.input_shape)), keepdim
         return x.reduce_op(ReduceOps.SUM,axis,keepdim)
 
     def backward(self, output_grad: LazyBuffer):
         if not self.need_input_grad[0]:
             return None
         
-        # normalize the axis,; -1 = last dim
-        axis = normalize_axis(self.axis, len(self.input_shape))
         grad = output_grad
 
         # If keepdim=False, reinsert dimensions
         if not self.keepdim:
-            new_shape = list(grad.shape)
-            for ax in sorted(axis): new_shape.insert(ax, 1)
+            new_shape = keepdim_shape_from_reduced(grad.shape,self.axis,len(self.input_shape))
             grad = grad.movement_op(MovementOps.RESHAPE,tuple(new_shape))
             
         # Now broadcast safely
@@ -180,3 +190,6 @@ class Conv2D(Function):
     def forward(self,x: LazyBuffer,w: LazyBuffer,stride=1, groups=1, dilation=1, padding=0):
         self.conv_args = get_conv_args(x.shape, w.shape, stride=stride, groups=groups, dilation=dilation, padding=padding)
         return x.processing_op(ProcessingOps.CONV,w,self.conv_args)
+    
+    def backward(self, *x):
+        return None
