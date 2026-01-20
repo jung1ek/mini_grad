@@ -185,11 +185,48 @@ class Permute(Function):
     def backward(self,output_grad: LazyBuffer):
         return output_grad.movement_op(MovementOps.PERMUTE, tuple(sorted(range(len(self.input_order)), key=self.input_order.__getitem__))) if self.need_input_grad[0] else None
 
+class Flip(Function):
+    def forward(self,x,axis):
+        self.axis = axis
+        return x.movement_op(MovementOps.FLIP,axis)
+    
+    def backward(self,output_grad):
+        return output_grad.movement_op(MovementOps.FLIP,self.axis)
+
+
 class Conv2D(Function):
 
     def forward(self,x: LazyBuffer,w: LazyBuffer,stride=1, groups=1, dilation=1, padding=0):
+        self.save_for_backward(x,w)
         self.conv_args = get_conv_args(x.shape, w.shape, stride=stride, groups=groups, dilation=dilation, padding=padding)
         return x.processing_op(ProcessingOps.CONV,w,self.conv_args)
     
-    def backward(self, *x):
-        return None
+    def backward(self,output_grad):
+        x,w = self.saved_tensors
+        C = self.conv_args
+        dx,dw = None, None
+        # for input image grad
+        if self.need_input_grad[0]: 
+            # gradient w.r.t input
+            xt = output_grad
+            if C.sx > 1 or C.sy > 1:
+                # If the forward conv had stride > 1, 
+                # the backward conv must insert zeros between elements.
+                xt = xt.movement_op(MovementOps.RESHAPE, (output_grad.shape[0], output_grad.shape[1], output_grad.shape[2], 1, output_grad.shape[3], 1))
+                xt = xt.movement_op(MovementOps.PAD, ((0,0), (0,0), (0,0), (0,C.sy-1), (0,0), (0,C.sx-1)))
+                xt = xt.movement_op(MovementOps.RESHAPE, (xt.shape[0], xt.shape[1], xt.shape[2]*C.sy, xt.shape[4]*C.sx))
+            # flip 180 then, swap input/output channels,
+            wt = w.movement_op(MovementOps.RESHAPE, (C.groups, C.rcout, C.cin, C.H, C.W)).movement_op(MovementOps.PERMUTE, (0, 2, 1, 3, 4)).movement_op(MovementOps.FLIP, (3, 4))
+            wt = wt.movement_op(MovementOps.RESHAPE, (C.groups*C.cin, C.rcout, C.H, C.W))
+            py, px = (C.H-1)*C.dy - C.py, (C.W-1)*C.dx - C.px
+            Cdx = get_conv_args(xt.shape, wt.shape, out_shape=x.shape, dilation=(C.dy, C.dx), padding=(py, px), groups=C.groups)
+            dx = xt.processing_op(ProcessingOps.CONV, wt, Cdx)
+        # for filter grad
+        if self.need_input_grad[1]:
+            xdw = x.movement_op(MovementOps.RESHAPE, (C.bs, C.groups, C.cin, C.iy, C.ix)).movement_op(MovementOps.PERMUTE, (2, 1, 0, 3, 4))
+            xdw = xdw.movement_op(MovementOps.RESHAPE, (C.cin, C.groups*C.bs, C.iy, C.ix))
+            grad_output_dw = output_grad.movement_op(MovementOps.PERMUTE, (1,0,2,3))
+            Cdw = get_conv_args(xdw.shape, grad_output_dw.shape, out_shape=(w.shape[1], w.shape[0], w.shape[2], w.shape[3]), padding=(C.py, C.px), stride=(C.dy, C.dx), dilation=(C.sy, C.sx), groups=C.groups)
+            dw = xdw.processing_op(ProcessingOps.CONV, grad_output_dw, Cdw).movement_op(MovementOps.PERMUTE, (1,0,2,3))
+
+        return dx,dw
