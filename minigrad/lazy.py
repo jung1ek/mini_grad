@@ -82,6 +82,8 @@ class LazyBuffer:
             shape = tuple([end-start for start,end in arg])
         elif op is MovementOps.STRIDED:
             shape = tuple([a[0] for a in arg])
+        elif op is MovementOps.FLIP:
+            shape = self.shape
         else:
             shape = arg
         
