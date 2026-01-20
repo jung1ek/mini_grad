@@ -11,7 +11,8 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     # class variable
     fxn_for_op = {
         BinaryOps.MUL: operator.mul, BinaryOps.ADD: operator.add, UnaryOps.RECIPROCAL: lambda x: (1.0/x).view(CPUBuffer),
-        BinaryOps.POW: operator.pow, BinaryOps.SUB: operator.sub, BinaryOps.DIV: operator.truediv, BinaryOps.CMPEQ: lambda x,y: (x==y).float().view(CPUBuffer),
+        BinaryOps.POW: operator.pow, BinaryOps.SUB: operator.sub, BinaryOps.DIV: operator.truediv,
+        BinaryOps.CMPEQ: lambda x,y: (x==y).float().view(CPUBuffer),
         UnaryOps.NEG: lambda x: -x, UnaryOps.SIGN: lambda x: x.sign(), UnaryOps.EXP: lambda x: x.exp(),
         UnaryOps.RELU: lambda x: x.relu(),UnaryOps.LOG: lambda x: x.log(),
         MovementOps.EXPAND: lambda x,shape: x.expand(shape),
@@ -37,7 +38,8 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     def pad(x,padding): return np.pad(np.asarray(x),padding).view(CPUBuffer)
     def expand(x,shape) : return np.broadcast_to(np.asarray(x),shape=shape).view(CPUBuffer)
     # def reshape(x,shape) : return np.reshape(x,shape).view(CPUBuffer)
-    def strided(x,arg): return np.lib.stride_tricks.as_strided(np.asarray(x).ravel().reshape(x.shape),shape=[y[0] for y in arg],strides=[y[1]*x.dtype.itemsize for y in arg]).view(CPUBuffer)
+    def strided(x,arg): return np.lib.stride_tricks.as_strided(np.asarray(x).ravel().reshape(x.shape),\
+                                                               shape=[y[0] for y in arg],strides=[y[1]*x.dtype.itemsize for y in arg]).view(CPUBuffer)
     def permute(x,order) : return np.transpose(np.asarray(x),order).view(CPUBuffer)
 
     @staticmethod
@@ -50,6 +52,7 @@ class CPUBuffer(np.ndarray,GenericExecAST):
     def movement_op(x,op,arg): return CPUBuffer.fxn_for_op[op](x,arg)
     def reduce_op(x,op,axis,keepdim): return CPUBuffer.fxn_for_op[op](x,axis,keepdim)
     
+    # not in use.
     def processing_op(x,op,w,C: ConvArgs):
         # TODO can use sliding window view? much safer
         tx = x.movement_op(MovementOps.STRIDED,((C.bs, C.groups*C.cin*x.shape[2]*x.shape[3]), (C.groups, C.cin*x.shape[2]*x.shape[3]),
