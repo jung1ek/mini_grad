@@ -9,9 +9,9 @@ def normalize_axis(axis, ndim):
     return tuple(a if a >= 0 else a + ndim for a in axis)
 
 # add 1 dims to the reduced axes, for keepdim false, 
-def keepdim_shape_from_reduced(out_shape, axis, ndim):
+def keepdim_shape_from_reduced(out_shape, axes, ndim):
     shape = list(out_shape)
-    for ax in sorted(axis):
+    for ax in sorted(axes):
         shape.insert(ax, 1)
     assert len(shape) == ndim
     return tuple(shape)
