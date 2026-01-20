@@ -5,8 +5,8 @@ from typing import Optional, Literal, Sequence, Callable, List
 import functools, inspect, importlib, itertools
 import math
 
-# TODO fix shape,
-# other is np.array while doing the broad cast [other], and add extra dim
+
+# other is np.array while doing the broad cast [other] so, this add extra 1 dim
 class Tensor:
     training: bool
     def __init__(self,data,device=None,requires_grad=None):
@@ -17,8 +17,8 @@ class Tensor:
             data = data.realize().toCPU()
 
         if isinstance(data, np.ndarray):
-            if data.shape == tuple(): # for scalar value, reshape to dim 1
-                data = data.reshape((1,))
+            # if data.shape == tuple(): # for scalar value, reshape to dim 1
+            #     data = data.reshape((1,))
             # creates lazybuffer on specific device, with fromCPU operation LazyOp.
             self.lazydata = LazyBuffer.fromCPU(data.astype(np.float32),device)
         elif isinstance(data, LazyBuffer):
@@ -99,13 +99,12 @@ class Tensor:
         known_dims = [s for s in shape if s!=-1]
         inferred_dim = self.size()//math.prod(known_dims)
         shape = tuple(inferred_dim if dim == -1 else dim for dim in shape)
-        assert self.size() == math.prod(shape)
+        assert self.size() == math.prod(shape),f"Cannot reshape {self.shape} -> {shape}"
         return self._reshape.apply(self,shape=shape)
     
-    #TODO check broadcastable shape
     def expand(self,*shape):
-        assert len(shape)==self.ndim
-        assert (s==e for e,s in zip(self.shape,shape) if s!=1 )
+        assert len(shape)==self.ndim,f"Cannot broradcast{self.shape} -> {shape}"
+        assert (s==e for e,s in zip(self.shape,shape) if s!=1 ),f"Cannot broradcast{self.shape} -> {shape}"
         return self._expand.apply(self,shape=shape)
 
     @property
@@ -167,7 +166,7 @@ class Tensor:
     def backward(self):
         # Implicit gradient creation (assumes scalar output).
         assert self.shape == (1,) or self.shape == (), "Backward can only be called on scalar tensors."
-        self.grad = Tensor([1],requires_grad=False,device=self.device)  # Initial gradient (dy/dy = 1)
+        self.grad = Tensor([1] if self.shape == (1,) else np.array(1.0),requires_grad=False,device=self.device)  # Initial gradient (dy/dy = 1)
 
         for node in reversed(self.deepwalk()):  # Process nodes in reverse topological order.
             if not any(x.requires_grad for x in node._ctx.parents):
