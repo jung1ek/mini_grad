@@ -6,22 +6,47 @@ from minigrad.ops import LazyOp, OpType,LoadOps,ReduceOps,MovementOps,BinaryOps,
 from minigrad.llops.ops_cpu import CPUBuffer
 from minigrad.helpers import reduce_shape
 from minigrad.helpers import ConvArgs, get_conv_args
-import sys
+import sys, weakref, os
 
 sys.setrecursionlimit(10000)
-
+LAZY = int(os.getenv("LAZY","1"))
 class Device:
     pass
 
+# return the weak reference of the LazyOP objects. so, the referenced object can be freed anytime.
+def get_weakop(op)->LazyOp: return LazyOp(op.op, tuple(get_weakop(x) if isinstance(x, LazyOp) else weakref.ref(x) for x in op.src), op.arg)
+
 # TODO optimization, 
 class LazyBuffer:
+    lazy_cache:weakref.WeakValueDictionary[LazyOp, LazyBuffer] = weakref.WeakValueDictionary()
+    # for caching.
+    def __new__(cls,shape,device,op_type,op):
+        # NOTE we dont cache load ops.
+        if op_type == LoadOps:
+            # init with new values.
+            return super().__new__(cls)
+        # creating key for cache dict.
+        wop = (device,op_type,get_weakop(op))
+        
+        # if cache doesnot have this op, then register and init with new values.
+        if wop not in LazyBuffer.lazy_cache:
+            LazyBuffer.lazy_cache[wop]=ret=super().__new__(cls)
+        # return the cached op.
+        return LazyBuffer.lazy_cache[wop]
+    
+    # this invoked withe return object from above. (new (super().__new__) or old( lazy_cache[wop]))
     def __init__(self,shape,device,op_type:OpType,op:LazyOp):
+        if hasattr(self,"device"):
+            return # cache hit; we dont reinit
         self.op_type = op_type
         self.shape = shape
         self.op: LazyOp = op
         self.device = device
         self.realized = None # DeviceBuffer; computed data
-        self.children = None # Other lazy Buffer
+        self.children = None # Other lazy Buffer; for creating computational graph.
+
+        if not LAZY:
+            self.realize()
 
     def __repr__(self): return f"<LB {self.shape} op:{self.op.op if self.realized is None else 'realized'}>"
     
@@ -128,7 +153,7 @@ class LazyBuffer:
     def slice(x, arg):
         # Pad first then shrink, pad to make valid indices; only if needed
         padding = [(max(0,-p[0]),max(0,p[1]-x.shape[i])) for i,p in enumerate(arg)]
-        return x.movement_op(MovementOps.PAD,padding).movement_op(MovementOps.SHRINK,tuple((p[0]+padding[i][0],p[1]+padding[i][0]) for i,p in enumerate(arg)))
+        return x.movement_op(MovementOps.PAD,tuple(padding)).movement_op(MovementOps.SHRINK,tuple((p[0]+padding[i][0],p[1]+padding[i][0]) for i,p in enumerate(arg)))
     
     def elementwise_op(op,*srcs):
         srcs = None
