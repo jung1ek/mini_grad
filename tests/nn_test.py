@@ -40,7 +40,7 @@ def embedding_test(input_idxs,vocab=100,d_model=512,atol=1e-4,rtol=1e-5):
 class TestNN(unittest.TestCase):
 
     def test_forward(self):
-        embedding_test([[1,2,3],[5,6,7]])
+        embedding_test([[1,2,3,110],[5,6,7,99]])
 
 
 if __name__=="__main__":
