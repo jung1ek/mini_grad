@@ -34,7 +34,7 @@ class Module:
         self._parameters = {}
         self.training = True
         
-    def register_buffer(name,attr):
+    def register_buffer(self,name,attr):
         setattr(Module, name, attr)
     
     def modules(self) -> Sequence[Module]:
@@ -75,8 +75,10 @@ class Module:
     def __setattr__(self, name, value):
         if isinstance(value, Parameter):
             self.add_parameter(name, value.value)
+            self.register_buffer(name,value)
         elif isinstance(value, Module):
             self.add_module(name,value)
+            self.register_buffer(name,value)
         elif isinstance(value, Tensor):
             self.register_buffer(name,value)
         else:
@@ -84,7 +86,9 @@ class Module:
     
     def forward(self, *args, **kwds):
         raise NotImplementedError
-    __call__ = forward
+    
+    def __call__(self,*args,**kwds):
+        return self.forward(*args,**kwds)
 
 class ModuleList:
     
@@ -107,7 +111,6 @@ class Embedding(Module):
 
         for b in range(batch):
             seq_out = None  # will become (seq_len, d_model)
-
             for s in range(seq_len):
                 idx = int(x[b][s].data.item())
                 vec = self.embedding.value[idx].unsqueeze(0)
