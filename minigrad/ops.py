@@ -34,9 +34,9 @@ class GenericExecAST:
         # rel_srcs = realized sources
         rel_srcs = [cls.exec_ast(x) for x in ast.src]
 
-        if ast.op in LoadOps:
-            ret = cls.fromCPU(ast.arg)
-        elif ast.op in UnaryOps:
+        # if ast.op in LoadOps:
+        #     ret = cls.fromCPU(ast.arg)
+        if ast.op in UnaryOps:
             ret = cls.unary_op(rel_srcs[0],ast.op)
         elif ast.op in BinaryOps:
             assert rel_srcs[0].shape==rel_srcs[1].shape

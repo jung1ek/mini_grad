@@ -4,6 +4,7 @@ from enum import Enum
 import numpy as np
 from minigrad.ops import LazyOp, OpType,LoadOps,ReduceOps,MovementOps,BinaryOps,UnaryOps,ProcessingOps
 from minigrad.llops.ops_cpu import CPUBuffer
+from minigrad.llops.ops_opencl import GPUBUffer
 from minigrad.helpers import reduce_shape
 from minigrad.helpers import ConvArgs, get_conv_args
 import sys, weakref, os
@@ -51,18 +52,24 @@ class LazyBuffer:
     def __repr__(self): return f"<LB {self.shape} op:{self.op.op if self.realized is None else 'realized'}>"
     
     def _realize_binaryops(self):
+        if self.device=="gpu":
+            return GPUBUffer.exec_ast(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_unaryops(self):
         return CPUBuffer.exec_ast(self.op)
 
     def _realize_loadops(self):
-        return CPUBuffer.exec_ast(self.op)
+        if self.device=="gpu":
+            return GPUBUffer.fromCPU(self.op.arg)
+        return CPUBuffer.fromCPU(self.op.arg)
     
     def _realize_reduceops(self):
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_movementops(self):
+        if self.device=="gpu":
+            return GPUBUffer.exec_ast(self.op)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_processingops(self):

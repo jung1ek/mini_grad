@@ -38,6 +38,18 @@ class Tensor:
     def data(self):
         return self.numpy()
     
+    def to(self,device:str):
+        ret = Tensor(self.lazydata,device)
+        if ret.grad:
+            ret.grad = self.grad.to(device)
+        return ret
+    
+    def to_(self,device:str):
+        assert self.lazydata.realized is None
+        self.lazydata.device = device
+        if self.grad:
+            self.grad.lazydata.device = device
+    
     def size(self,x=None):
         if x is None:
             return math.prod(self.shape)
