@@ -9,13 +9,16 @@ from minigrad.ops import (
     BinaryOps, UnaryOps, ReduceOps,
     MovementOps, LoadOps, OpType
 )
+from minigrad.helpers import (
+    gen_index, gen_stride, 
+    is_contiguous, stride_broadcast
+)
 
-# ============================================================
-# OpenCL setup
-# ============================================================
+#TODO implement shape tracker for contigious.
 
 CL_DEVICE = int(os.getenv("CL_DEVICE", "0"))
 
+# OpenCL setup
 class CL:
     ctx: Optional[cl.Context] = None
     queue: Optional[cl.CommandQueue] = None
@@ -23,10 +26,8 @@ class CL:
     def __init__(self):
         if CL.ctx is not None:
             return
-        devices = sum(
-            [p.get_devices(cl.device_type.GPU) for p in cl.get_platforms()],
-            []
-        )
+        devices = sum([p.get_devices(cl.device_type.GPU)\
+                        for p in cl.get_platforms()],[])
         CL.ctx = cl.Context([devices[CL_DEVICE]])
         CL.queue = cl.CommandQueue(CL.ctx)
 
@@ -34,63 +35,7 @@ class CL:
     def copy_to_host(dst: np.ndarray, src: cl.Buffer):
         cl.enqueue_copy(CL().queue, dst, src)
 
-
-# ============================================================
-# Shape helpers
-# ============================================================
-
-def gen_stride(shape):
-    stride = [1] * len(shape)
-    for i in range(len(shape)-2, -1, -1):
-        stride[i] = stride[i+1] * shape[i+1]
-    return tuple(stride)
-
-def stride_broadcast(orig_shape, target_shape, orig_stride):
-    assert len(orig_shape) == len(target_shape) == len(orig_stride)
-    out = []
-    for os, ts, st in zip(orig_shape, target_shape, orig_stride):
-        if os == ts:
-            out.append(st)
-        elif os == 1:
-            out.append(0)
-        else:
-            raise ValueError("Invalid broadcast")
-    return tuple(out)
-
-# ============================================================
-# Index generation (supports reduce!)
-# ============================================================
-
-def gen_index(shape, strides, name, reduce_axes=None, reduce_var="r",prefix=""):
-    reduce_axes = reduce_axes or []
-    code = []
-
-    divs = []
-    div = 1
-    for d in reversed(shape):
-        divs.append(div)
-        div *= d
-    divs = list(reversed(divs))
-
-    for i, d in enumerate(shape):
-        var = f"{prefix}"
-        if i in reduce_axes:
-            code.append(f"int {var}i{i} = {reduce_var};")
-        else:
-            code.append(f"int {var}i{i} = (gid / {divs[i]}) % {d};")
-
-    expr = " + ".join(f"{prefix}i{i}*{strides[i]}" for i in range(len(shape)))
-    # expr = " + ".join(
-    # f"i{i}*{s}" for i, s in enumerate(strides)
-    # )
-    code.append(f"int {name}_idx = {expr};")
-    return code
-
-
-# ============================================================
-# Kernel builder
-# ============================================================
-
+# Kernal Builder
 class CLProgram:
     params = []
     expr = []
@@ -98,7 +43,7 @@ class CLProgram:
     reduce_size = 1
 
     @classmethod
-    def build(cls, out_shape, buffers):
+    def build_kernal(cls, out_shape, buffers):
         code = []
         code.append("__kernel void fused(")
         code.append(", ".join(f"__global float* {b}" for b in cls.params))
@@ -112,39 +57,36 @@ class CLProgram:
             code.append(f"for (int r = 0; r < {cls.reduce_size}; r++) {{")
 
         for i,buf in enumerate(buffers.values()):
-            code += gen_index(
-                buf.shape,
-                buf.stride,
-                buf.name,
+            code += gen_index(buf.shape,buf.stride,buf.name,
                 cls.reduce_axes if cls.reduce_size > 1 else None,
-                prefix=f"a{i}_"
-
-            )
+                prefix=f"a{i}_",out_shape=out_shape)
 
         code += cls.expr
 
         if cls.reduce_size > 1:
             code.append("}")
             code.append("out[gid] = acc;")
+            code.append("}")
         else:
             code.append("}")
 
         return "\n".join(code)
 
-
-# ============================================================
 # GPU Buffer
-# ============================================================
-
 class GPUBUffer(ExplicitExecAST):
     load_id = 0
     tmp_id = 0
 
-    BINOP = {
+    OPFN = {
     BinaryOps.ADD: "+",
     BinaryOps.MUL: "*",
     BinaryOps.SUB: "-",
     BinaryOps.DIV: "/",
+    BinaryOps.POW: "*",
+    UnaryOps.RECIPROCAL: "1/",
+    UnaryOps.RELU: "",
+    UnaryOps.EXP: "",
+    UnaryOps.LOG: "",
     }
 
     def __init__(self, shape, stride, name=None, buf=None):
@@ -156,32 +98,22 @@ class GPUBUffer(ExplicitExecAST):
 
     def __repr__(self):
         return f"<GPUBuffer shape={self.shape}>"
-
-    # --------------------------------------------------------
-    # CPU → GPU
-    # --------------------------------------------------------
-
+    
+    # cpu -> gpu
     @staticmethod
     def fromCPU(x: np.ndarray):
         x = x.astype(np.float32)
-        buf = cl.Buffer(
-            CL().ctx,
-            cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR,
-            hostbuf=x.ravel()
-        )
+        buf = cl.Buffer(CL().ctx, cl.mem_flags.READ_ONLY |\
+                        cl.mem_flags.COPY_HOST_PTR,hostbuf=x.ravel())
         name = f"a{GPUBUffer.load_id}"
         GPUBUffer.load_id+=1
         return GPUBUffer(x.shape, gen_stride(x.shape), name, buf)
 
+    # gpu-cpu
     def toCPU(self):
         out = np.empty(self.shape, np.float32)
         CL.copy_to_host(out, self.buf)
         return out
-
-
-    # --------------------------------------------------------
-    # Exec AST
-    # --------------------------------------------------------
 
     @classmethod
     def exec_ast(cls, ast: LazyOp, out_shape):
@@ -195,71 +127,94 @@ class GPUBUffer(ExplicitExecAST):
 
         def walk(x: LazyOp):
             if hasattr(x, "realize"):
-                if x.op_type == LoadOps:
-                    buf = x.realize()
-                    if buf.name not in buffers:
-                        CLProgram.params.append(buf.name)
-                        buffers[buf.name] = buf
-                        cl_buffers.append(buf.buf)
-                    return f"{buf.name}[{buf.name}_idx]", buf
-
-                return walk(x.op)
-
+              # detect leaf
+              if x.op_type == LoadOps:
+                buf = x.realize()
+                if buf.name not in buffers:
+                 CLProgram.params.append(buf.name)
+                 buffers[buf.name] = buf
+                 cl_buffers.append(buf.buf)
+                return f"{buf.name}[{buf.name}_idx]", buf
+              # continue tree
+              return walk(x.op)
+            assert type(x) == LazyOp
             src = [walk(s) for s in x.src]
 
             # ---------------- Binary ----------------
             if x.op in BinaryOps:
+                if CLProgram.reduce_size > 1:
+                    raise RuntimeError("Elementwise op after reduce detected.\
+                                       ""Split kernel before reduce.")
                 a, b = src[0][0], src[1][0]
                 t = f"t{cls.tmp_id}"
                 cls.tmp_id += 1
-                CLProgram.expr.append(f"float {t} = {a} {cls.BINOP[x.op]} {b};")
-                return t, GPUBUffer(out_shape, None, t)
+                CLProgram.expr.append(f"float {t} = {a} {cls.OPFN[x.op]} {b};")
+                return t, GPUBUffer(src[0][1].shape, src[0][1].stride, t)
+            
+            if x.op in UnaryOps:
+                if CLProgram.reduce_size > 1:
+                    raise RuntimeError("Elementwise op after reduce detected.\
+                                       ""Split kernel before reduce.")
+                a = src[0][0]
+                t = f"t{cls.tmp_id}"
+                cls.tmp_id += 1
+                CLProgram.expr.append(f"float {t} = {cls.OPFN[x.op]} {a};")
+                return t, GPUBUffer(src[0][1].shape, src[0][1].stride, t)
 
             # ---------------- Reduce ----------------
             if x.op in ReduceOps:
-                axis = x.op.axis
-                CLProgram.reduce_axes.append(axis)
-                CLProgram.reduce_size *= src[0][1].shape[axis]
+                # only one reduce per kernel
+                if CLProgram.reduce_size != 1:
+                    raise RuntimeError("Internal error: multiple reduces in one kernel")
+                axis = x.arg[0]
+                CLProgram.reduce_axes = list(axis)
+                CLProgram.reduce_size *= math.prod([src[0][1].shape[a] for a in axis])
                 CLProgram.expr.append("acc += " + src[0][0] + ";")
-                return "acc", src[0][1]
+                return "acc", None
 
             # ---------------- Broadcast ----------------
             if x.op == MovementOps.EXPAND:
                 buf = src[0][1]
-                buf.stride = stride_broadcast(buf.shape, out_shape, buf.stride)
-                buf.shape = out_shape
+                buf.stride = stride_broadcast(buf.shape, x.arg, buf.stride)
+                buf.shape = x.arg
                 return src[0][0], buf
 
             # ---------------- Reshape ----------------
             if x.op == MovementOps.RESHAPE:
-                new_shape = x.arg  # or x.op.arg / x.op.new_shape
                 buf = src[0][1]
-                buf.shape = new_shape
-                buf.stride = gen_stride(new_shape)  # contiguous view
-                return src[0][0], src[0][1]
+                # what if some permuted tensor is being reshaped.
+                if not is_contiguous(buf.shape,buf.stride):
+                    if len(x.arg) != len(buf.stride):
+                    # buf.stride = gen_stride(x.arg)  # contiguous view
+                        raise RuntimeError(
+                        f"Cannot reshape non-contiguous tensor with different ndim. "
+                        f"Shape {buf.shape} → {x.arg}, stride {buf.stride}. "
+                        f"Insert a .contiguous() call before reshape.")
+                else:
+                    buf.stride = gen_stride(x.arg)
+                buf.shape = x.arg
+                return src[0][0], buf
+            
+            if x.op == MovementOps.PERMUTE:
+                buf = src[0][1]
+                order = x.arg
+                buf.stride = [buf.stride[o] for o in order]
+                buf.shape = tuple(buf.shape[o] for o in order)
+                return src[0][0], buf
 
             raise NotImplementedError(x.op)
         
-
         out_expr, _ = walk(ast)
         if CLProgram.reduce_size == 1:
             CLProgram.expr.append(f"out[gid] = {out_expr};")
 
-        out_buf = cl.Buffer(
-            CL().ctx,
-            cl.mem_flags.WRITE_ONLY,
-            4 * math.prod(out_shape) # in bytes
-        )
+        out_buf = cl.Buffer(CL().ctx,cl.mem_flags.WRITE_ONLY,\
+                            4 * math.prod(out_shape))# in bytes
 
-        src = CLProgram.build(out_shape, buffers)
+        src = CLProgram.build_kernal(out_shape, buffers)
         program = cl.Program(CL().ctx, src).build()
-        program.fused(
-            CL().queue,
-            (math.prod(out_shape),),
-            None,
-            *cl_buffers,
-            out_buf
-        )
+        program.fused(CL().queue,(math.prod(out_shape),),\
+                      None,*cl_buffers,out_buf)
         # print(src)
         return GPUBUffer(out_shape, None, "out", out_buf)
 
