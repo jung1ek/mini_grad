@@ -4,7 +4,7 @@ from enum import Enum
 import numpy as np
 from minigrad.ops import LazyOp, OpType,LoadOps,ReduceOps,MovementOps,BinaryOps,UnaryOps,ProcessingOps
 from minigrad.llops.ops_cpu import CPUBuffer
-from minigrad.llops.ops_opencl import GPUBUffer
+from minigrad.llops.ops_gpu import GPUBUffer
 from minigrad.helpers import reduce_shape
 from minigrad.helpers import ConvArgs, get_conv_args
 import sys, weakref, os
@@ -23,7 +23,7 @@ class LazyBuffer:
     # for caching.
     def __new__(cls,shape,device,op_type,op):
         # NOTE we dont cache load ops.
-        if op_type == LoadOps:
+        if op_type == LoadOps or op.op in LoadOps:
             # init with new values.
             return super().__new__(cls)
         # creating key for cache dict.
@@ -53,10 +53,12 @@ class LazyBuffer:
     
     def _realize_binaryops(self):
         if self.device=="gpu":
-            return GPUBUffer.exec_ast(self.op,self.shape)
+            return GPUBUffer.schedule(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_unaryops(self):
+        if self.device=="gpu":
+            return GPUBUffer.schedule(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
 
     def _realize_loadops(self):
@@ -65,11 +67,13 @@ class LazyBuffer:
         return CPUBuffer.fromCPU(self.op.arg)
     
     def _realize_reduceops(self):
+        if self.device=="gpu":
+            return GPUBUffer.schedule(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_movementops(self):
         if self.device=="gpu":
-            return GPUBUffer.exec_ast(self.op)
+            return GPUBUffer.schedule(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_processingops(self):
@@ -87,9 +91,11 @@ class LazyBuffer:
         self.realized = _realize[self.op_type]()
         assert self.realized.shape == self.shape,f"Shape mismatch: expected {self.shape}, got {self.realized.shape}"
         
-        # free graph memory
-        del self.op
-        del self.children
+        # TODO free graph memory
+        # for scheduling we need op to traverse the tree.
+        if self.op_type != LoadOps:
+          del self.op
+          del self.children
         return self.realized
 
     @staticmethod
