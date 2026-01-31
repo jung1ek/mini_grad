@@ -333,15 +333,15 @@ class Tensor:
         return self._conv2d.apply(self,w,**kwargs) if bias is None else \
               self._conv2d.apply(self,w,**kwargs).add(bias.reshape(*[1,-1,1,1]))
     def logsoftmax(self,dim=-1):
-        m = self - self.max(axis=-1,keepdim=True)
+        m = self - self.max(axis=dim,keepdim=True)
         _exp = m.exp()
-        return m - (_exp.sum(axis=-1,keepdim=True)).log()
+        return m - (_exp.sum(axis=dim,keepdim=True)).log()
     
     def softmax(self,axis=-1):
         # normalize, self- max of self, to solve overflow
-        m = self - self.max(axis=len(self.shape)-1,keepdim=True)
+        m = self - self.max(axis=axis,keepdim=True)
         _exp = m.exp()
-        sm = _exp.div(_exp.sum(axis=len(self.shape)-1,keepdim=True))
+        sm = _exp.div(_exp.sum(axis=axis,keepdim=True))
         return sm
 
     def linear(self,weight,bias=None):
