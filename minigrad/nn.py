@@ -65,7 +65,7 @@ class Module:
         return result
 
     def add_parameter(self,k:str,v:Any) -> Parameter:
-        val = Parameter(v,k)
+        val = Parameter(v,k) if isinstance(v,Tensor) else v
         self.__dict__["_parameters"][k]=val
         return val
     
@@ -74,7 +74,7 @@ class Module:
     
     def __setattr__(self, name, value):
         if isinstance(value, Parameter):
-            self.add_parameter(name, value.value)
+            self.add_parameter(name, value)
             self.register_buffer(name,value)
         elif isinstance(value, Module):
             self.add_module(name,value)
@@ -127,13 +127,20 @@ class Embedding(Module):
                 batch_out = batch_out.cat(seq_out, dim=0)
         return batch_out
 
-
-
 class Linear(Module):
     def __init__(self,in_features,out_featues):
         super().__init__()
-        self.w = Parameter(Tensor.xavier_uniform(in_features,out_featues))
-        self.b = Parameter(Tensor.randn(out_featues))
+        self.weight = Parameter(Tensor.xavier_uniform(in_features,out_featues))
+        self.bias = Parameter(Tensor.randn(out_featues))
 
     def forward(self,x):
-        return x @ self.w.value + self.b.value
+        return x @ self.weight.value + self.bias.value
+    
+
+class CrossEntropyLoss:
+
+    def __init__(self):
+        pass
+
+    def forward(self,logits,targets):
+        pass
