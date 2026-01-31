@@ -105,13 +105,12 @@ class Slice(Function):
 
 class Max(Function):
     def forward(self,x,axis=None,keepdim=False):
-        ret = x.reduce_op(ReduceOps.MAX,axis,keepdim)
         self.axis = normalize_axis(axis,len(x.shape))
         self.keepdim = keepdim
+        ret = x.reduce_op(ReduceOps.MAX,self.axis,keepdim)
         self.save_for_backward(x,ret)
         return ret
     
-    # TODO 
     def backward(self, grad_output):
         if not self.need_input_grad[0]:
             return None
@@ -159,7 +158,7 @@ class Sum(Function):
     def forward(self, x: LazyBuffer, axis=None, keepdim=False):
         self.input_shape = x.shape
         self.axis, self.keepdim = normalize_axis(axis, len(self.input_shape)), keepdim
-        return x.reduce_op(ReduceOps.SUM,axis,keepdim)
+        return x.reduce_op(ReduceOps.SUM,self.axis,keepdim)
 
     def backward(self, output_grad: LazyBuffer):
         if not self.need_input_grad[0]:
@@ -167,7 +166,7 @@ class Sum(Function):
         
         grad = output_grad
 
-        # If keepdim=False, reinsert dimensions
+        # If keepdim=False, reinsert 1 dimension
         if not self.keepdim:
             new_shape = keepdim_shape_from_reduced(grad.shape,self.axis,len(self.input_shape))
             grad = grad.movement_op(MovementOps.RESHAPE,tuple(new_shape))
@@ -223,10 +222,13 @@ class Conv2D(Function):
             dx = xt.processing_op(ProcessingOps.CONV, wt, Cdx)
         # for filter grad
         if self.need_input_grad[1]:
+            #each (batch, group) pair becomes a channel
             xdw = x.movement_op(MovementOps.RESHAPE, (C.bs, C.groups, C.cin, C.iy, C.ix)).movement_op(MovementOps.PERMUTE, (2, 1, 0, 3, 4))
             xdw = xdw.movement_op(MovementOps.RESHAPE, (C.cin, C.groups*C.bs, C.iy, C.ix))
+            #(out_channels, batch, H, W)
             grad_output_dw = output_grad.movement_op(MovementOps.PERMUTE, (1,0,2,3))
             Cdw = get_conv_args(xdw.shape, grad_output_dw.shape, out_shape=(w.shape[1], w.shape[0], w.shape[2], w.shape[3]), padding=(C.py, C.px), stride=(C.dy, C.dx), dilation=(C.sy, C.sx), groups=C.groups)
+            #Final permute restores (out_channels, in_channels, H, W)
             dw = xdw.processing_op(ProcessingOps.CONV, grad_output_dw, Cdw).movement_op(MovementOps.PERMUTE, (1,0,2,3))
 
         return dx,dw
