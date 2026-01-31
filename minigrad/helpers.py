@@ -1,5 +1,5 @@
 from collections import namedtuple
-
+from minigrad.ops import LazyOp, ReduceOps
 # normalized the axes
 def normalize_axis(axis, ndim):
     if axis is None:
@@ -71,3 +71,112 @@ def get_conv_args(x_shape, w_shape, stride=1, groups=1, padding=0, dilation=1, o
     return ConvArgs(H, W, groups, cout//groups, cin, oy, ox, iy, ix, sy, sx, bs, cout, py, py_, px, px_, dy, dx, (bs, cout, oy, ox))
 
 
+# ============================================================
+# GPU Shape helpers and opencl kernal index gen
+# ============================================================
+
+def is_contiguous(shape, stride):
+    """Check if tensor is contiguous (C-order)"""
+    if not stride:
+        return True
+    expected_stride = gen_stride(shape)
+    return tuple(stride) == tuple(expected_stride)
+
+def gen_stride(shape):
+    stride = [1] * len(shape)
+    for i in range(len(shape)-2, -1, -1):
+        stride[i] = stride[i+1] * shape[i+1]
+    return tuple(stride)
+
+def stride_broadcast(orig_shape, target_shape, orig_stride):
+    assert len(orig_shape) == len(target_shape) == len(orig_stride)
+    out = []
+    for os, ts, st in zip(orig_shape, target_shape, orig_stride):
+        if os == ts:
+            out.append(st)
+        elif os == 1:
+            out.append(0)
+        else:
+            raise ValueError("Invalid broadcast")
+    return tuple(out)
+
+def gen_index(shape, strides, name, reduce_axes=None, reduce_var="r", prefix="",out_shape=None):
+    reduce_axes = reduce_axes or []
+    code = []
+    
+    # For reduce operations, we need to use out_shape for gid indexing
+    # and shape for the full tensor indexing
+    gid_shape = out_shape if (reduce_axes and out_shape) else shape
+
+    # gid divs
+    divs = []
+    div = 1
+    for d in reversed(gid_shape):
+        divs.append(div)
+        div *= d
+    divs = list(reversed(divs))
+
+    # reduce divs
+    reduce_divs = []
+    if reduce_axes:
+        div = 1
+        for ax in reversed(reduce_axes):
+            reduce_divs.append(div)
+            div *= shape[ax]
+        reduce_divs = list(reversed(reduce_divs))
+    out_dim = 0
+    for i, d in enumerate(shape):
+        if i in reduce_axes:
+            ridx = reduce_axes.index(i)
+            code.append(
+                f"int {prefix}i{i} = ({reduce_var} / {reduce_divs[ridx]}) % {d};"
+            )
+        else:
+            code.append(
+                f"int {prefix}i{i} = (gid / {divs[out_dim]}) % {d};"
+            )
+            out_dim+=1
+
+    expr = " + ".join(f"{prefix}i{i}*{strides[i]}" for i in range(len(shape)))
+    code.append(f"int {name}_idx = {expr};")
+    return code
+
+def find_reduce(node, shape):
+    if not isinstance(node, LazyOp):
+        return None, None
+    
+    # Search children first (depth-first, post-order traversal)
+    for s in getattr(node, "src", []):
+        # Handle LazyBuffer wrapper
+        if hasattr(s, "op"):
+            r, sh = find_reduce(s.op, s.shape)
+            if r is not None:
+                return r, sh
+        # Handle direct LazyOp
+        elif isinstance(s, LazyOp):
+            r, sh = find_reduce(s, shape)
+            if r is not None:
+                return r, sh
+    
+    # Only check current node if no reduce found in children
+    if node.op in ReduceOps and isinstance(node, LazyOp):
+        return node, shape
+    return None, None
+
+# broken
+def replace_node(node, target, replacement):
+    if node is target:
+        return replacement
+    if not hasattr(node, "src"):
+        return node
+    # Handle LazyBuffer sources
+    if hasattr(node, "src") and len(node.src) > 0 and hasattr(node.src[0], "op"):
+        new_src = tuple([
+            type(s)(s.shape,s.device,s.op_type,replace_node\
+                    (s.op, target, replacement))for s in node.src])
+    else:
+        # Handle direct LazyOp sources
+        new_src = tuple([
+            replace_node(s, target, replacement) for s in node.src
+        ])
+    return LazyOp(node.op, new_src, arg=node.arg)
