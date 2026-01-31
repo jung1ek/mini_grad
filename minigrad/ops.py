@@ -11,7 +11,7 @@ ReduceOps = Enum("ReduceOps",["SUM","MAX"])
 ProcessingOps = Enum("ProcessingOps",["CONV1D","CONV"])
 
 Op = Union[LoadOps,UnaryOps,BinaryOps]
-OpType = Union[Type[BinaryOps],Type[UnaryOps],Type[LoadOps]]
+OpType = Union[Type[BinaryOps],Type[UnaryOps],Type[LoadOps],Type[ReduceOps]]
 
 # stores lazy sources (parents), operation type, other arguments for output lazy buffer
 class LazyOp(NamedTuple):
@@ -56,3 +56,5 @@ class ExplicitExecAST:
 
     @classmethod
     def exec_ast(cls,ast:LazyOp): raise NotImplementedError
+
+    def binary_op(self,op,y): return type(self)(self.shape).exec_ast(LazyOp(op=op,src=(self,y)))
