@@ -166,6 +166,10 @@ class LazyBuffer:
     def slice(x, arg):
         # Pad first then shrink, pad to make valid indices; only if needed
         padding = [(max(0,-p[0]),max(0,p[1]-x.shape[i])) for i,p in enumerate(arg)]
+        # print(padding)
+        # print(arg)
+        if all(b == 0 and a == 0 for b, a in padding):
+            return x.movement_op(MovementOps.SHRINK, arg)
         return x.movement_op(MovementOps.PAD,tuple(padding)).movement_op(MovementOps.SHRINK,tuple((p[0]+padding[i][0],p[1]+padding[i][0]) for i,p in enumerate(arg)))
     
     def elementwise_op(op,*srcs):

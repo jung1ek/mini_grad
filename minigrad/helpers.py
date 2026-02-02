@@ -100,7 +100,7 @@ def stride_broadcast(orig_shape, target_shape, orig_stride):
             raise ValueError("Invalid broadcast")
     return tuple(out)
 
-def gen_index(shape, strides, name, reduce_axes=None, reduce_var="r", prefix="",out_shape=None):
+def gen_index(buf,shape, strides, name, reduce_axes=None, reduce_var="r", prefix="",out_shape=None):
     reduce_axes = reduce_axes or []
     code = []
     
@@ -137,8 +137,93 @@ def gen_index(shape, strides, name, reduce_axes=None, reduce_var="r", prefix="",
             )
             out_dim+=1
 
-    expr = " + ".join(f"{prefix}i{i}*{strides[i]}" for i in range(len(shape)))
+    expr_terms = [f"{prefix}i{i}*{strides[i]}" for i in range(len(shape))]
+    if hasattr(buf, "offset"):
+        expr_terms += [f"{buf.offset[i]}*{strides[i]}" for i in range(len(shape))]
+    expr = " + ".join(expr_terms)
     code.append(f"int {name}_idx = {expr};")
+    return code
+
+def gen_index_with_padding(buf, shape, strides, name, reduce_axes=None, reduce_var="r",
+                           prefix="", out_shape=None):
+    """
+    Generate C-like indexing code for a tensor, with optional reduction axes
+    and optional padding (out-of-bounds values return 0.0f).
+    
+    padding: list of tuples [(pad_before_dim0, pad_after_dim0), ...] same length as shape
+    """
+    reduce_axes = reduce_axes or []
+    code = []
+    padding = buf.padding if hasattr(buf,"padding") else [(0,0)]*len(shape)
+    
+    # For reduce operations, we need to use out_shape for gid indexing
+    # and shape for the full tensor indexing
+    gid_shape = out_shape if (reduce_axes and out_shape) else shape
+
+    # gid divs
+    divs = []
+    div = 1
+    for d in reversed(gid_shape):
+        divs.append(div)
+        div *= d
+    divs = list(reversed(divs))
+
+    # reduce divs
+    reduce_divs = []
+    if reduce_axes:
+        div = 1
+        for ax in reversed(reduce_axes):
+            reduce_divs.append(div)
+            div *= shape[ax]
+        reduce_divs = list(reversed(reduce_divs))
+    
+    out_dim = 0
+    for i, d in enumerate(shape):
+        pad_before, pad_after = padding[i]
+        if i in reduce_axes:
+            ridx = reduce_axes.index(i)
+            code.append(
+                f"int {prefix}i{i} = ({reduce_var} / {reduce_divs[ridx]}) % {d};"
+            )
+        else:
+            # compute index for this dimension
+            code.append(
+                f"int {prefix}i{i} = (gid / {divs[out_dim]}) % {d};"
+            )
+            out_dim += 1
+
+        if hasattr(buf,"padding"):
+            # Apply padding logic
+            if pad_before > 0 or pad_after > 0:
+                # Compute shifted index
+                code.append(f"int {prefix}i{i}_padded = {prefix}i{i} - {pad_before};")
+                # Validity check
+                code.append(
+                    f"bool {prefix}i{i}_valid = ({prefix}i{i}_padded >= 0) && "
+                    f"({prefix}i{i}_padded < {d});"
+                )
+            else:
+                code.append(f"int {prefix}i{i}_padded = {prefix}i{i};")
+                code.append(f"bool {prefix}i{i}_valid = true;")
+
+    # Compute final flat index
+    if hasattr(buf,"padding"):
+        expr_terms = [f"{prefix}i{i}_padded*{strides[i]}" for i in range(len(shape))]
+    else:
+        expr_terms = [f"{prefix}i{i}*{strides[i]}" for i in range(len(shape))]
+    if hasattr(buf, "offset"):
+        expr_terms += [f"{buf.offset[i]}*{strides[i]}" for i in range(len(shape))]
+    expr = " + ".join(expr_terms)
+    code.append(f"int {name}_idx = {expr};")
+    
+    if hasattr(buf,"padding"):
+        # Overall validity mask (all dims must be valid)
+        valid_terms = [f"{prefix}i{i}_valid" for i in range(len(shape))]
+        code.append(f"bool {name}_valid = " + " && ".join(valid_terms) + ";")
+
+        # Load value with padding
+        code.append(f"float {name}_val = {name}_valid ? {name}[{name}_idx] : 0.0f;")
+
     return code
 
 def find_reduce(node, shape):
