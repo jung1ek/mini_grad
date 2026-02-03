@@ -97,7 +97,8 @@ def stride_broadcast(orig_shape, target_shape, orig_stride):
         elif os == 1:
             out.append(0)
         else:
-            raise ValueError("Invalid broadcast")
+            raise ValueError(f"Invalid broadcast for shape {orig_shape} with stride"\
+                             f"{orig_stride} -> broadcasted shape {target_shape}")
     return tuple(out)
 
 def gen_index(buf,shape, strides, name, reduce_axes=None, reduce_var="r", prefix="",out_shape=None):
@@ -153,6 +154,7 @@ def gen_index_with_padding(buf, shape, strides, name, reduce_axes=None, reduce_v
     padding: list of tuples [(pad_before_dim0, pad_after_dim0), ...] same length as shape
     """
     reduce_axes = reduce_axes or []
+            
     code = []
     padding = buf.padding if hasattr(buf,"padding") else [(0,0)]*len(shape)
     
@@ -167,7 +169,7 @@ def gen_index_with_padding(buf, shape, strides, name, reduce_axes=None, reduce_v
         divs.append(div)
         div *= d
     divs = list(reversed(divs))
-
+    print(name,shape,reduce_axes)
     # reduce divs
     reduce_divs = []
     if reduce_axes:
@@ -212,8 +214,15 @@ def gen_index_with_padding(buf, shape, strides, name, reduce_axes=None, reduce_v
     else:
         expr_terms = [f"{prefix}i{i}*{strides[i]}" for i in range(len(shape))]
     if hasattr(buf, "offset"):
-        expr_terms += [f"{buf.offset[i]}*{strides[i]}" for i in range(len(shape))]
+        # expr_terms += [f"{buf.offset[i]}*{strides[i]}" for i in range(len(shape))]
+        expr_terms += [f"{buf.base_offset}"]
     expr = " + ".join(expr_terms)
+
+    # import math
+    # if len(shape) == 0 or math.prod(shape) == 1:
+    #     code.append(f"int {name}_idx = 0;")
+    # else:
+    #     code.append(f"int {name}_idx = {expr};")
     code.append(f"int {name}_idx = {expr};")
     
     if hasattr(buf,"padding"):
