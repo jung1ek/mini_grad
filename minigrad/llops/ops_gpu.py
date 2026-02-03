@@ -54,6 +54,7 @@ class GPUBuffer(ExplicitExecAST):
         return f"<GPUBuffer shape={self.shape}>"
     
     # cpu -> gpu
+    # Create GPUBuffer from numpy array
     @staticmethod
     def fromCPU(x: np.ndarray):
         x = x.astype(np.float32)
@@ -84,16 +85,6 @@ class GPUBuffer(ExplicitExecAST):
         def snapshot(buf):
             if buf not in orig_meta:
                 orig_meta[buf] = (buf.shape, buf.stride)
-        def clone_view(buf):
-            new = GPUBuffer(
-                shape=tuple(buf.shape),
-                stride=tuple(buf.stride),
-                name=buf.name,
-                buf=buf.buf
-            )
-            new.offset = list(getattr(buf, "offset", [0]*len(buf.shape)))
-            return new
-
         def walk(x: LazyOp):
             if hasattr(x, "realize"):
               
@@ -110,9 +101,10 @@ class GPUBuffer(ExplicitExecAST):
             assert type(x) == LazyOp
             src = [walk(s) for s in x.src]
 
+            #TODO movement ops after the binary ops, changes is applied to new buffer?? issue
             # ---------------- Binary ----------------
             if x.op in BinaryOps:
-                if CLProgram.reduce_size > 1:
+                if CLProgram.reduce_size >= 1:
                     raise RuntimeError("Elementwise op after reduce detected.\
                                        ""Split kernel before reduce.")
                 a, b = src[0][0], src[1][0]
@@ -122,17 +114,19 @@ class GPUBuffer(ExplicitExecAST):
                     CLProgram.expr.append(f"float {t} = pow({a} , {b});")
                 else:
                     CLProgram.expr.append(f"float {t} = {a} {cls.OPFN[x.op]} {b};")
+                assert src[0][1].shape==src[1][1].shape or src[1][1].shape == ()
                 return t, GPUBuffer(src[0][1].shape, src[0][1].stride, t)
             
             if x.op in UnaryOps:
-                if CLProgram.reduce_size > 1:
+                if CLProgram.reduce_size >= 1:
                     raise RuntimeError("Elementwise op after reduce detected.\
                                        ""Split kernel before reduce.")
                 a = src[0][0]
                 t = f"t{cls.tmp_id}"
                 cls.tmp_id += 1
                 CLProgram.expr.append(f"float {t} = {cls.OPFN[x.op]} {a});")
-                return t, GPUBuffer(src[0][1].shape, src[0][1].stride, t)
+                return t, src[0][1]
+            # GPUBuffer(src[0][1].shape, src[0][1].stride, t)
 
             # ---------------- Reduce ----------------
             if x.op in ReduceOps:
@@ -166,17 +160,16 @@ class GPUBuffer(ExplicitExecAST):
                 # what if some permuted tensor is being reshaped.
                 if not is_contiguous(buf.shape,buf.stride):
                     if len(x.arg) != len(buf.stride):
-                    # buf.stride = gen_stride(x.arg)  # contiguous view
-                        raise RuntimeError(
-                        f"Cannot reshape non-contiguous tensor with different ndim. "
-                        f"Shape {buf.shape} → {x.arg}, stride {buf.stride}. "
-                        f"Insert a .contiguous() call before reshape.")
+                        raise NeedRealize(x.src[0])
                 else:
-                    buf.stride = gen_stride(x.arg)
+                    buf.stride = gen_stride(x.arg) # contiguous view
+                # if len(x.arg)>= len(buf.shape):
                 buf.shape = x.arg
                 return src[0][0], buf
 
             if x.op == MovementOps.PERMUTE:
+                if x.src[0].op.op in BinaryOps:
+                    print("Yes Binary")
                 buf = src[0][1]
                 snapshot(buf)
                 order = x.arg
@@ -185,6 +178,8 @@ class GPUBuffer(ExplicitExecAST):
                 return src[0][0], buf
             
             if x.op == MovementOps.SHRINK:
+                if x.src[0].op.op in BinaryOps:
+                    print("Yes Binary")
                 buf = src[0][1]
                 snapshot(buf)
                 buf.shape = tuple(e-s for s,e in x.arg)
@@ -193,9 +188,13 @@ class GPUBuffer(ExplicitExecAST):
                     buf.offset = [0]*len(buf.shape)
                 for i,(s,_) in enumerate(x.arg):
                     buf.offset[i] += s
+                buf.base_offset = sum(buf.offset[i]*buf.stride[i] for i\
+                                    in range(len(buf.offset)))
                 return src[0][0],buf
             
             if x.op == MovementOps.PAD:
+                if x.src[0].op.op in BinaryOps:
+                    print("Yes Binary")
                 buf = src[0][1]
                 snapshot(buf)
                 # buf.shape = tuple(buf.shape[i]+before+after for \
@@ -209,6 +208,8 @@ class GPUBuffer(ExplicitExecAST):
                     buf.shape[j] + b + a if j == i else buf.shape[j]
                     for j in range(len(buf.shape))
                 )
+                buf.base_offset = sum(buf.offset[i]*buf.stride[i] for i\
+                                    in range(len(buf.offset)))
                 return f"{buf.name}_val",buf
             
             if x.op == MovementOps.FLIP:
@@ -228,13 +229,22 @@ class GPUBuffer(ExplicitExecAST):
 
                 buf.stride = tuple(stride)
                 buf.offset = offset
+                buf.base_offset = sum(buf.offset[i]*buf.stride[i] for i\
+                                    in range(len(buf.offset)))
                 return src[0][0], buf
             
             if x.op == MovementOps.STRIDED:
-                return src[0][0],src[0][1]
+                if x.src[0].op.op in BinaryOps:
+                    print("Yes Binary")
+                buf = src[0][1]
+                snapshot(buf)
+                buf.stride = tuple(y[1]*np.float32().itemsize for y in x.arg)
+                buf.shape = tuple(y[0] for y in x.arg)
+                # *np.float32().itemsize
+                return src[0][0],buf
             
             if x.op == LoadOps.FROMCPU:
-                buf = cls.fromCPU(x.arg)  # Create GPUBuffer from numpy array
+                buf = cls.fromCPU(x.arg)
                 if buf.name not in buffers:
                     CLProgram.params.append(buf.name)
                     buffers[buf.name] = buf
@@ -251,6 +261,7 @@ class GPUBuffer(ExplicitExecAST):
                             4 * math.prod(out_shape))# in bytes
 
         src = CLProgram.build_kernal(out_shape, buffers)
+        # print(src)
         program = cl.Program(CL().ctx, src).build()
         program.fused(CL().queue,(math.prod(out_shape),),\
                       None,*cl_buffers,out_buf)
@@ -258,45 +269,50 @@ class GPUBuffer(ExplicitExecAST):
         for buf, (shape, stride) in orig_meta.items():
             buf.shape = shape
             buf.stride = stride
-        return GPUBuffer(out_shape, None, "out", out_buf)
-
-    @classmethod
-    def schedule(cls, ast: LazyOp, out_shape):
-        while True:
-            # Find the deepest (bottom-most) reduce in the tree
-            reduce_node, reduced_shape = find_reduce(ast, out_shape)
-            if reduce_node is None:
-                # No more reduces found, break and execute final elementwise kernel
-                break
-
-            # print(f"Scheduling reduce: {reduce_node.op} -> shape {reduced_shape}")
-            # Execute kernel up to and including this reduce
-            if type(reduce_node) == LazyOp:
-                tmp_buf = cls.exec_ast(reduce_node, reduced_shape)
-            else:
-                tmp_buf = cls.exec_ast(reduce_node.op, reduced_shape)
-            # Get the result back to CPU temporarily
-            tmp_data = tmp_buf.toCPU()
+        return GPUBuffer(out_shape, gen_stride(out_shape), "out", out_buf)
     
-            # Replace the reduce node with a FROMCPU load node containing the result
-            load_node = LazyOp(LoadOps.FROMCPU, src=tuple(), arg=tmp_data)
-            ast = replace_node(ast, reduce_node, load_node)
-
-        # Execute final kernel (pure elementwise or last operations)
-        # print(f"Final kernel: shape {out_shape}")
-        if ast.op == LoadOps.FROMCPU:
-            return cls.fromCPU(ast.arg)
-        return cls.exec_ast(ast, out_shape)
-
+    @classmethod
+    def schedule(cls, ast, out_shape):
+        while True:
+            try:
+                reduce_node, reduced_shape = find_reduce(ast, out_shape)
+                if reduce_node is None:
+                    if ast.op == LoadOps.FROMCPU:
+                      return cls.fromCPU(ast.arg)
+                    return cls.exec_ast(ast, out_shape)
+                tmp = cls.exec_ast(reduce_node, reduced_shape)
+                CLProgram.reset()
+                ast = replace_node(ast,reduce_node,
+                    LazyOp(LoadOps.FROMCPU,tuple(), arg=tmp.toCPU()))
+            except NeedRealize as e:
+                # materialize the offending subgraph
+                sub = e.node
+                if sub.realized is not None:
+                    raise RuntimeError("Node requested realization twice (infinite loop guard)")
+                # print(e.op_type)
+                tmp = cls.exec_ast(sub.op, sub.shape)
+                ast = replace_node(ast,sub.op,
+                    LazyOp(LoadOps.FROMCPU,tuple(), arg=tmp.toCPU()))
+        
+class NeedRealize(Exception):
+    def __init__(self, node):
+        self.node = node
 
 # Kernal Builder
 class CLProgram:
     params = []
     expr = []
     reduce_axes = []
-    reduce_size = 1
+    reduce_size = 0
 
     reduce_op = None
+    @classmethod
+    def reset(cls):
+        CLProgram.params = []
+        CLProgram.expr = []
+        CLProgram.reduce_axes = []
+        CLProgram.reduce_size = 0
+
     @classmethod
     def build_kernal(cls, out_shape, buffers):
         code = []
@@ -316,7 +332,7 @@ class CLProgram:
 
         for i,buf in enumerate(buffers.values()):
             code += gen_index_with_padding(buf,buf.shape,buf.stride,buf.name,
-                cls.reduce_axes if cls.reduce_size > 1 else None,
+                cls.reduce_axes if cls.reduce_size > 0 else None,
                 prefix=f"a{i}_",out_shape=out_shape)
 
         code += cls.expr
