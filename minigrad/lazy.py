@@ -4,7 +4,8 @@ from enum import Enum
 import numpy as np
 from minigrad.ops import LazyOp, OpType,LoadOps,ReduceOps,MovementOps,BinaryOps,UnaryOps,ProcessingOps
 from minigrad.llops.ops_cpu import CPUBuffer
-from minigrad.llops.ops_gpu import GPUBUffer
+from minigrad.llops.ops_gpu import GPUBuffer
+from minigrad.llops.ops_rust import RCPUBuffer
 from minigrad.helpers import reduce_shape
 from minigrad.helpers import ConvArgs, get_conv_args
 import sys, weakref, os
@@ -53,27 +54,32 @@ class LazyBuffer:
     
     def _realize_binaryops(self):
         if self.device=="gpu":
-            return GPUBUffer.schedule(self.op,self.shape)
+            return GPUBuffer.schedule(self.op,self.shape)
+        # return RCPUBuffer.exec_ast(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_unaryops(self):
         if self.device=="gpu":
-            return GPUBUffer.schedule(self.op,self.shape)
+            return GPUBuffer.schedule(self.op,self.shape)
+        # return RCPUBuffer.exec_ast(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
 
     def _realize_loadops(self):
         if self.device=="gpu":
-            return GPUBUffer.fromCPU(self.op.arg)
+            return GPUBuffer.fromCPU(self.op.arg)
+        # return RCPUBuffer.fromCPU(self.op.arg)
         return CPUBuffer.fromCPU(self.op.arg)
     
     def _realize_reduceops(self):
         if self.device=="gpu":
-            return GPUBUffer.schedule(self.op,self.shape)
+            return GPUBuffer.schedule(self.op,self.shape)
+        # return RCPUBuffer.exec_ast(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_movementops(self):
         if self.device=="gpu":
-            return GPUBUffer.schedule(self.op,self.shape)
+            return GPUBuffer.schedule(self.op,self.shape)
+        # return RCPUBuffer.exec_ast(self.op,self.shape)
         return CPUBuffer.exec_ast(self.op)
     
     def _realize_processingops(self):
