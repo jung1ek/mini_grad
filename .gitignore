@@ -1,4 +1,8 @@
 /.minigrad_venv
 /.venv
 /minigrad.egg-info
-
+notebooks
+minigrad/__pycache__
+minigrad/llops/__pycache__
+rust_backend/target
+rust_backend/Cargo.lock
