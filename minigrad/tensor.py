@@ -70,6 +70,9 @@ class Tensor:
     
     # use numpy for now
     @classmethod
+    def randint(cls,low,high,size): return cls(np.random.randint(low=low,high=high,size=size))
+    
+    @classmethod
     def zeros_like(cls,tensor,**kwargs): return cls.zeros(*tensor.shape,**kwargs)
 
     @classmethod
