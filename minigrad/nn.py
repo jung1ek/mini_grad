@@ -143,4 +143,16 @@ class CrossEntropyLoss:
         pass
 
     def forward(self,logits,targets):
+        # logits might be softmax.
+        assert targets.shape == logits.shape # targets must be one hot encoding
+        loss = - targets * logits.log()
+        return loss.mean()
+
+class BinaryCrossEntropyLoss:
+
+    def __init__(self):
         pass
+
+    def forward(self,logits,targets):
+        loss =  - targets * logits.log()+ (1-targets) * (1-logits).log() 
+        return loss.mean()
